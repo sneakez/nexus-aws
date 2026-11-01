@@ -77,14 +77,15 @@ describe('V6 Unit Economics & Analytics Engine', () => {
     expect(dash.kpis.orderVolume.value).toBeGreaterThan(0);
     expect(dash.waterfallPnL.length).toBe(14);
     expect(dash.channelComparison.length).toBe(4);
-    expect(dash.decisionInsights.length).toBeGreaterThanOrEqual(3);
+    expect(dash.decisionInsights.every(insight => insight.dataAttribution === 'DEMO-OBSERVED')).toBe(true); // No mandatory invented insights when thresholds are not reached
   });
 
-  it('calculates Cash Conversion Cycle correctly: CCC = DIO + DSO - DPO', () => {
+  it('keeps CCC unavailable without sufficient observations and reconciles working capital gap', () => {
     const wc = analyticsService.getWorkingCapitalOverview();
-    expect(wc.cashConversionCycleDays).toBe(
-      wc.daysInventoryOutstanding + wc.daysSalesOutstanding - wc.daysPayablesOutstanding
-    );
+    expect(wc.cashConversionCycleDays).toBeNull();
+    expect(wc.daysInventoryOutstanding).toBeNull();
+    expect(wc.daysSalesOutstanding).toBeNull();
+    expect(wc.daysPayablesOutstanding).toBeNull();
     expect(wc.workingCapitalGap).toBe(
       (wc.pendingMarketplaceSettlements + wc.inventoryCapital) - wc.supplierPayables
     );

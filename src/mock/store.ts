@@ -1,5 +1,7 @@
 import { commerceFixture } from './commerceFixture';
+import { moneyFixture } from './moneyFixture';
 import { commerceOrderMetrics } from './commerceMetrics';
+import { ensureFinance, financeState, balance, batchView, payableView, cashForecast, accruePurchaseReceipt, operationsConfig, validMoneyDate, moneySignature, type CashAccount, type PricingAssumptions, type OperationsConfig } from './finance';
 import { INITIAL_MOCK_DATABASE } from './seedData';
 import { receiveReturn, inspectReturn, inventoryForReceipt, commandId, type ReceiptLine, type QcLine } from './returnCommands';
 import { hasPermission, ENABLE_FINANCE_ROLE, type Permission } from '@/lib/permissions';
@@ -93,6 +95,14 @@ class MockDataStore {
   private mutate(updater: (draft: MockDatabaseSnapshot) => void, eventTopic: MockEventTopic, payload?: unknown) {
     const clone = JSON.parse(JSON.stringify(this.state)) as MockDatabaseSnapshot;
     updater(clone);
+    // Late source changes append an observation without rewriting cash documents.
+    for (const batch of financeState(clone).settlements) {
+      const old = financeState(this.state).settlements.find(b => b.id === batch.id);
+      if (old) {
+        const before = batchView(this.state, old).current_expected, after = batchView(clone, batch).current_expected;
+        if (before !== after) batch.history.push({ at: new Date().toISOString(), actor_id: this.state.activeUserId || 'unauthenticated', action: 'source_adjustment', note: `Dự kiến ${before} → ${after}; chứng từ tiền đã nhận giữ nguyên` });
+      }
+    }
     if (eventTopic !== 'DATABASE_RESET') {
       const oldLedger = new Set(this.state.stockLedger.map(l => l.id));
       for (const l of clone.stockLedger) if (!oldLedger.has(l.id)) l.created_by = this.state.activeUserId || 'unauthenticated';
@@ -186,7 +196,7 @@ class MockDataStore {
   }
 
   public getDemoLoginAccounts() {
-    const roles: TenantRole[] = ['owner', 'admin', 'manager', 'warehouse', 'growth'];
+    const roles: TenantRole[] = ['owner', 'manager', 'warehouse'];
     return roles.flatMap(role => this.state.memberships
       .filter(m => m.tenant_id === this.state.activeTenantId && m.status === 'active' && m.role === role)
       .flatMap(m => {
@@ -198,7 +208,8 @@ class MockDataStore {
   public signInDemoUser(email: string): { success: boolean; error?: string; userId?: string } {
     const profile = this.state.profiles.find(p => p.email.toLowerCase() === email.trim().toLowerCase() && p.is_active);
     const membership = this.state.memberships.find(m => m.user_id === profile?.id && m.tenant_id === this.state.activeTenantId && m.status === 'active');
-    if (!profile || !membership || membership.role === 'viewer' || (membership.role === 'finance' && !ENABLE_FINANCE_ROLE)) return { success: false, error: 'Tài khoản demo không hoạt động hoặc không có membership phù hợp' };
+    const mvpRoles: TenantRole[] = ['owner', 'manager', 'warehouse'];
+    if (!profile || !membership || !mvpRoles.includes(membership.role)) return { success: false, error: 'Vai trò này không nằm trong phạm vi prototype MVP' };
     this.mutate(draft => { draft.activeUserId = profile.id; draft.activeRole = membership.role; }, 'ROLE_SWITCHED', { userId: profile.id });
     return { success: true, userId: profile.id };
   }
@@ -2035,17 +2046,22 @@ class MockDataStore {
     this.mutate(draft => {
       const now = new Date().toISOString();
       draft.purchaseOrders ||= []; draft.purchaseOrderItems ||= [];
-      draft.purchaseOrders.push({ ...header, id, status: 'draft', total_amount: lines.reduce((sum, i) => sum + i.quantity * i.unit_cost, 0), created_at: now });
+      let supplier = draft.suppliers.find(s=>s.tenant_id===draft.activeTenantId&&s.name.trim().toLowerCase()===header.supplier_name.trim().toLowerCase());
+      if (!supplier) { supplier={id:commandId(),tenant_id:draft.activeTenantId,code:`MOCK-${id.slice(0,8)}`,name:header.supplier_name.trim(),contact_person:'',email:'',phone:'',address:'',payment_terms:'Chưa khai báo; hạn trả ghi riêng trên công nợ mock',lead_time_days:header.lead_time_days||0,rating:0,created_at:now};draft.suppliers.push(supplier); }
+      draft.purchaseOrders.push({ ...header, supplier_id:supplier.id, id, status: 'draft', total_amount: lines.reduce((sum, i) => sum + i.quantity * i.unit_cost, 0), created_at: now });
       draft.purchaseOrderItems.push(...lines.map(i => ({ ...i, id: commandId(), po_id: id, received_qty: 0, created_at: now })));
     }, 'ORDER_STATUS_CHANGED', { poId: id, action: 'purchase_created' });
     return { success: true, poId: id };
   }
 
-  public receivePurchaseOrder(poId: string, itemsToReceive?: Array<{ item_id: string; qty: number }>): { success: boolean; error?: string } {
+  public receivePurchaseOrder(poId: string, itemsToReceive?: Array<{ item_id: string; qty: number }>, receiptId?: string): { success: boolean; error?: string } {
     const po = (this.state.purchaseOrders || []).find(p => p.id === poId);
     if (!po) return { success: false, error: 'Không tìm thấy đơn PO' };
     const permissionError = this.authorize('inventory:receive', po);
     if (permissionError) return { success: false, error: permissionError };
+    const signature = JSON.stringify({ poId, itemsToReceive });
+    const key = `po-receipt:${receiptId}`;
+    if (receiptId && this.state.processedCommands?.[key]) return this.state.processedCommands[key] === signature ? { success: true } : { success: false, error: 'Mã nhận PO đã dùng với nội dung khác' };
 
     if (!['ordered', 'partial'].includes(po.status)) return { success: false, error: 'PO chưa được đặt hoặc đã nhận đủ' };
     const poItems = (this.state.purchaseOrderItems || []).filter(i => i.po_id === poId);
@@ -2060,13 +2076,16 @@ class MockDataStore {
     if (!requested.some(i => i.qty > 0)) return { success: false, error: 'Không còn hàng PO cần nhận' };
     const now = new Date().toISOString();
     this.mutate(draft => {
+      if (receiptId) { draft.processedCommands ||= {}; draft.processedCommands[key] = signature; }
       let allCompleted = true;
+      let receiptValue = 0;
       const targetPo = (draft.purchaseOrders || []).find(p => p.id === poId);
 
       for (const poi of (draft.purchaseOrderItems || []).filter(i => i.po_id === poId)) {
         const req = itemsToReceive?.find(r => r.item_id === poi.id);
         const qtyToRec = req ? req.qty : itemsToReceive ? 0 : Math.max(0, poi.quantity - (poi.received_qty || 0));
         if (qtyToRec > 0) {
+          receiptValue += qtyToRec * poi.unit_cost;
           poi.received_qty = (poi.received_qty || 0) + qtyToRec;
 
           const product = draft.products.find(p => p.id === poi.product_id)!;
@@ -2109,6 +2128,7 @@ class MockDataStore {
         targetPo.status = allCompleted ? 'received' : 'partial';
         targetPo.updated_at = now;
       }
+      accruePurchaseReceipt(draft, poId, receiptValue, receiptId || commandId(), draft.activeUserId!);
     }, 'PO_RECEIVED', { poId });
 
     return { success: true };
@@ -2126,10 +2146,10 @@ class MockDataStore {
     } catch (e) { return { success: false, error: (e as Error).message }; }
   }
 
-  public loadAcceptanceFixture(variant: 'core' | 'partial' = 'core'): { success: boolean; error?: string } {
+  public loadAcceptanceFixture(variant: 'core' | 'partial' | 'money' = 'core'): { success: boolean; error?: string } {
     const error = this.commandPermission('settings:manage');
     if (error || this.state.activeRole !== 'owner') return { success: false, error: error || 'Chỉ Owner nạp fixture thay dữ liệu' };
-    const fresh = commerceFixture(INITIAL_MOCK_DATABASE, variant);
+    const fresh = variant === 'money' ? moneyFixture(INITIAL_MOCK_DATABASE) : commerceFixture(INITIAL_MOCK_DATABASE, variant);
     this.mutate(draft => Object.assign(draft, fresh), 'DATABASE_RESET', { fixture: 'RAM-X' });
     return { success: true };
   }
@@ -2282,6 +2302,110 @@ class MockDataStore {
     return { success: true };
   }
 
+  // Money documents share the same clone/persist/commit boundary as stock commands.
+  private moneyCommand(id: string, payload: unknown, entities: unknown[], updater: (draft: MockDatabaseSnapshot) => void) {
+    const error = entities.map(entity => this.authorize('finance:reconcile', entity)).find(Boolean);
+    if (error || !entities.length) return { success: false, error: error || 'Thiếu chứng từ nguồn trong phạm vi' };
+    if (!id?.trim()) return { success: false, error: 'Cần mã chứng từ duy nhất' };
+    const signature = moneySignature(payload), old = financeState(this.state).command_signatures[id];
+    if (old) return old === signature ? { success: true, replay: true } : { success: false, error: 'Mã chứng từ đã dùng với nội dung khác' };
+    try {
+      this.mutate(draft => { const f = ensureFinance(draft); updater(draft); f.command_signatures[id] = signature; }, 'JOURNAL_POSTED', { id, action: 'mock_money_document', payload });
+      return { success: true };
+    } catch (error) { return { success: false, error: (error as Error).message }; }
+  }
+
+  public createCashAccount(params: Omit<CashAccount, 'tenant_id'>) {
+    const ctx = this.getExecutionContext();
+    if (!ctx || ctx.role !== 'owner' || ctx.shopIds || ctx.warehouseIds) return { success: false, error: 'Chỉ Owner toàn tenant cấu hình số dư đầu kỳ mock' };
+    if (!params.id?.trim() || !params.name.trim() || !Number.isSafeInteger(params.opening_balance) || params.opening_balance < 0 || !params.opening_reference.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(params.opening_date)) return { success: false, error: 'Tài khoản cần mã, tên, ngày, số dư nguyên không âm và nguồn số dư đầu kỳ' };
+    if (financeState(this.state).accounts.some(a => a.id === params.id)) return { success: false, error: 'Tài khoản đã có; không sửa ngược số dư đầu kỳ' };
+    if (!validMoneyDate(params.opening_date) || params.opening_date > new Date(Date.now()+7*3600000).toISOString().slice(0,10) || params.shop_id && !this.state.channelConnections?.some(c=>c.shop_id===params.shop_id&&c.tenant_id===ctx.tenantId) || params.warehouse_id && !this.state.warehouses.some(w=>w.id===params.warehouse_id&&w.tenant_id===ctx.tenantId)) return { success:false,error:'Ngày/scope tài khoản mock không hợp lệ' };
+    return this.moneyCommand(`account:${params.id}`, params, [{ tenant_id: ctx.tenantId }], draft => { ensureFinance(draft).accounts.push({ ...params, tenant_id: ctx.tenantId }); });
+  }
+
+  public getFinanceOverview(delayDays = 0) {
+    const f = financeState(this.state);
+    const accounts = f.accounts.filter(a => !this.authorize('finance:view', a)).map(a => ({ ...structuredClone(a), balance: balance(this.state, a.id) }));
+    const visibleOrders = new Set(this.getOrders().filter(o => !this.authorize('finance:view', o)).map(o => o.id));
+    const settlements = f.settlements.filter(b => b.tenant_id === this.state.activeTenantId && b.order_ids.every(id => visibleOrders.has(id))).map(b => batchView(this.state, structuredClone(b)));
+    const payables = f.payables.filter(p => !this.authorize('finance:view', p)).map(p => payableView(this.state, structuredClone(p)));
+    const availableCash = accounts.reduce((sum, a) => sum + a.balance, 0);
+    const documents = f.documents.filter(d => accounts.some(a => a.id === d.account_id) && (settlements.some(b => b.id === d.entity_id) || payables.some(p => p.id === d.entity_id)));
+    const assigned = new Set(f.settlements.flatMap(b => b.order_ids));
+    const eligibleOrders = this.getOrders().filter(o => visibleOrders.has(o.id) && !assigned.has(o.id) && (o.shipped_at || o.status === 'delivered')).map(o => ({ ...o, expected: commerceOrderMetrics(this.state, o).sales - commerceOrderMetrics(this.state, o).fees + commerceOrderMetrics(this.state, o).compensation }));
+    const forecast = cashForecast(this.state, settlements, payables, availableCash, delayDays);
+    for (const order of eligibleOrders.filter(o => o.expected > 0)) forecast.undated.push({ id: order.id, date: null, inflow: order.expected, outflow: 0 });
+    return { accounts, settlements, payables, availableCash, documents: structuredClone(documents), eligibleOrders, pendingMarketplaceSettlements: settlements.reduce((sum, b) => sum + Math.max(0, b.remaining), 0) + eligibleOrders.reduce((sum, o) => sum + Math.max(0, o.expected), 0), supplierPayables: payables.reduce((sum, p) => sum + p.remaining, 0), forecast };
+  }
+
+  public createSettlementBatch(params: { id: string; orderIds: string[]; expectedDate: string | null }) {
+    const orders = params.orderIds.map(id => this.state.orders.find(o => o.id === id));
+    const f = financeState(this.state);
+    if (params.expectedDate && !validMoneyDate(params.expectedDate)) return { success:false,error:'Ngày dự kiến không hợp lệ' };
+    if (!orders.length || new Set(params.orderIds).size !== orders.length || orders.some(o => !o || !o.shop_id || (!o.shipped_at && o.status !== 'delivered')) || orders.some(o => o!.shop_id !== orders[0]!.shop_id || o!.channel !== orders[0]!.channel) || params.expectedDate && !/^\d{4}-\d{2}-\d{2}$/.test(params.expectedDate)) return { success: false, error: 'Chọn đơn đã bàn giao cùng shop/kênh và ngày dự kiến hợp lệ hoặc để trống' };
+    return this.moneyCommand(`batch:${params.id}`, params, orders, draft => {
+      if (f.settlements.some(b => b.id === params.id || b.order_ids.some(id => params.orderIds.includes(id)))) throw Error('Đơn đã thuộc đợt thanh toán khác');
+      const original_expected = orders.reduce((sum, o) => { const m = commerceOrderMetrics(draft, o!); return sum + m.sales - m.fees + m.compensation; }, 0);
+      ensureFinance(draft).settlements.push({ id: params.id, tenant_id: draft.activeTenantId, shop_id: orders[0]!.shop_id!, channel: orders[0]!.channel, order_ids: params.orderIds, expected_date: params.expectedDate, original_expected, source_adjustment: 0, adjustment_reason: '', history: [{ at: new Date().toISOString(), actor_id: draft.activeUserId!, action: 'created', note: 'Dự kiến từ đơn nguồn; không tăng tiền' }] });
+    });
+  }
+
+  public recordSettlementReceipt(params: { id: string; batchId: string; accountId: string; amount: number; date: string; reference: string; discrepancyReason?: string }) {
+    const f = financeState(this.state), batch = f.settlements.find(b => b.id === params.batchId), account = f.accounts.find(a => a.id === params.accountId);
+    return this.moneyCommand(params.id, params, [account, ...(batch?.order_ids.map(id => this.state.orders.find(o => o.id === id)) || [undefined])], draft => {
+      if (!validMoneyDate(params.date) || account!.shop_id && account!.shop_id !== batch!.shop_id || account!.warehouse_id && batch!.order_ids.some(id=>draft.orders.find(o=>o.id===id)?.assigned_warehouse_id!==account!.warehouse_id)) throw Error('Ngày/scope chứng từ nhận tiền không khớp tài khoản');
+      const view = batchView(draft, batch!);
+      if (!view.reconciled || view.remaining <= 0) throw Error('Cần đối soát xong và khoản còn chờ nhận dương; điều chỉnh âm xử lý riêng');
+      if (!Number.isSafeInteger(params.amount) || params.amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(params.date) || params.date < account!.opening_date || params.date > new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10) || !params.reference.trim()) throw Error('Cần số tiền nguyên dương, ngày thực nhận và nguồn tham chiếu');
+      if (params.amount > view.remaining && !params.discrepancyReason?.trim()) throw Error('Nhận vượt dự kiến cần lý do chênh lệch');
+      ensureFinance(draft).documents.push({ id: params.id, tenant_id: draft.activeTenantId, kind: 'receipt', account_id: params.accountId, entity_id: params.batchId, amount: params.amount, date: params.date, reference: params.reference.trim(), actor_id: draft.activeUserId!, created_at: new Date().toISOString(), reason: params.discrepancyReason });
+      ensureFinance(draft).settlements.find(b => b.id === params.batchId)!.history.push({ at: new Date().toISOString(), actor_id: draft.activeUserId!, action: 'received', note: `${params.id}: ${params.amount} VND; ${params.reference}` });
+    });
+  }
+
+  public updatePayableTerms(params: { id: string; payableId: string; dueDate: string; reason: string; confirmSimulation: boolean }) {
+    const payable = financeState(this.state).payables.find(p => p.id === params.payableId);
+    return this.moneyCommand(params.id, params, [payable], draft => {
+      if (!validMoneyDate(params.dueDate)) throw Error('Ngày hạn trả không hợp lệ');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(params.dueDate) || !params.reason.trim()) throw Error('Cần ngày hạn trả mới và lý do');
+      const target = ensureFinance(draft).payables.find(p => p.id === params.payableId)!;
+      target.proposed_due_date = params.dueDate;
+      target.extension_status = params.confirmSimulation ? 'confirmed_simulation' : 'requested_simulation';
+      if (params.confirmSimulation) target.due_date = params.dueDate;
+      target.history.push({ at: new Date().toISOString(), actor_id: draft.activeUserId!, action: target.extension_status, note: `${params.dueDate}: ${params.reason}; xác nhận chỉ trong mô phỏng, không từ NCC thật` });
+    });
+  }
+
+  public recordSupplierPayment(params: { id: string; payableId: string; accountId: string; amount: number; date: string; reference: string }) {
+    const f = financeState(this.state), payable = f.payables.find(p => p.id === params.payableId), account = f.accounts.find(a => a.id === params.accountId);
+    return this.moneyCommand(params.id, params, [payable, account], draft => {
+      if (!validMoneyDate(params.date) || account!.shop_id || account!.warehouse_id && account!.warehouse_id!==payable!.warehouse_id) throw Error('Ngày/scope tài khoản chi không khớp PO');
+      const view = payableView(draft, payable!);
+      if (!Number.isSafeInteger(params.amount) || params.amount <= 0 || params.amount > view.remaining || params.amount > balance(draft, params.accountId)) throw Error('Số chi phải nguyên dương, không vượt nợ còn lại hoặc tiền khả dụng');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(params.date) || params.date < account!.opening_date || params.date > new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10) || !params.reference.trim()) throw Error('Cần ngày chi thực tế và tham chiếu hợp lệ');
+      ensureFinance(draft).documents.push({ id: params.id, tenant_id: draft.activeTenantId, kind: 'payment', account_id: params.accountId, entity_id: params.payableId, amount: params.amount, date: params.date, reference: params.reference.trim(), actor_id: draft.activeUserId!, created_at: new Date().toISOString() });
+      ensureFinance(draft).payables.find(p => p.id === params.payableId)!.history.push({ at: new Date().toISOString(), actor_id: draft.activeUserId!, action: 'paid', note: `${params.id}: ${params.amount} VND; ${params.reference}` });
+    });
+  }
+
+  public getOperationsConfig() { return operationsConfig(this.state); }
+  public saveOperationsConfig(config: OperationsConfig) {
+    const error = this.commandPermission('settings:manage');
+    if (error || Object.values(config).some(n => !Number.isFinite(n) || n <= 0) || config.concentration_percent > 100 || config.history_days < config.slow_days) return { success: false, error: error || 'Ngưỡng cấu hình không hợp lệ' };
+    this.mutate(draft => { ensureFinance(draft).operations[draft.activeTenantId] = config; }, 'ORDER_STATUS_CHANGED', { action: 'operations_configured', config });
+    return { success: true };
+  }
+  public getPricingAssumptions(shopId: string) { return structuredClone(financeState(this.state).pricing.find(p => p.tenant_id === this.state.activeTenantId && p.shop_id === shopId && this.state.channelConnections?.some(c => c.shop_id === shopId && !this.authorize('products:view', c)))); }
+  public savePricingAssumptions(config: PricingAssumptions) {
+    const shop = this.state.channelConnections?.find(c => c.shop_id === config.shop_id);
+    const error = this.authorize('products:manage', shop);
+    const numbers = Object.entries(config).filter(([key]) => !['tenant_id', 'shop_id', 'tax_included_in_fees'].includes(key)).map(([, value]) => value as number);
+    if (error || numbers.some(n => !Number.isFinite(n) || n < 0) || config.commission_percent + config.payment_percent + config.ads_percent + (config.tax_included_in_fees ? 0 : config.configured_tax_percent) >= 100) return { success: false, error: error || 'Tỷ lệ/chi phí không hợp lệ' };
+    this.mutate(draft => { const f = ensureFinance(draft); f.pricing = f.pricing.filter(p => p.tenant_id !== draft.activeTenantId || p.shop_id !== config.shop_id); f.pricing.push({...config,tenant_id:draft.activeTenantId}); }, 'ORDER_STATUS_CHANGED', { action: 'pricing_configured', config });
+    return { success: true };
+  }
+
   public getGrowthRecommendations() {
     const ids = new Set(this.getOrders().map(o => o.id));
     return structuredClone((this.state.growthRecommendations || []).filter(r => r.tenant_id === this.state.activeTenantId && ids.has(r.order_id)));
@@ -2363,6 +2487,25 @@ class MockDataStore {
       const record = draft.handoffAssignments[key] ||= { assignee_id: null, history: [] };
       record.assignee_id = assigneeId; record.history.push({ actor_id: draft.activeUserId!, assignee_id: assigneeId, at: new Date().toISOString() });
     }, 'ORDER_STATUS_CHANGED', { orderId, key, assigneeId });
+    return { success: true };
+  }
+
+  public recordHandoffException(orderId: string, params: { note: string; dueAt: string; status: 'open' | 'processing' | 'resolved' | 'confirmed' }) {
+    const order = this.state.orders.find(o => o.id === orderId), ctx = this.getExecutionContext();
+    const permission = ctx?.role === 'warehouse' ? 'inventory:mutate' : 'orders:manage';
+    const error = this.authorize(permission, order);
+    if (error || !params.note.trim() || !Number.isFinite(Date.parse(params.dueAt)) || !['open','processing','resolved','confirmed'].includes(params.status)) return { success: false, error: error || 'Cần ghi chú, hạn và trạng thái hợp lệ' };
+    if (ctx?.role === 'warehouse' && params.status !== 'open') return { success: false, error: 'Kho ghi nhận phát hiện; Manager xử lý/xác nhận kết quả' };
+    const key = `monitor:${orderId}`, prior = this.state.handoffAssignments?.[key];
+    if (params.status === 'confirmed' && prior?.status !== 'resolved') return { success: false, error: 'Chỉ xác nhận sau khi đã có kết quả xử lý' };
+    this.mutate(draft => {
+      draft.handoffAssignments ||= {};
+      const record = draft.handoffAssignments[key] ||= { assignee_id: null, history: [] };
+      record.discovered_by ||= draft.activeUserId!; record.due_at = params.dueAt; record.status = params.status; record.note = params.note;
+      if (params.status === 'resolved') record.resolved_by = draft.activeUserId!;
+      if (params.status === 'confirmed') record.confirmed_by = draft.activeUserId!;
+      record.history.push({ actor_id: draft.activeUserId!, assignee_id: record.assignee_id, at: new Date().toISOString(), action: params.status, note: params.note });
+    }, 'ORDER_STATUS_CHANGED', { orderId, key, action: 'exception_updated', ...params });
     return { success: true };
   }
 

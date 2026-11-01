@@ -29,6 +29,12 @@ export function KPICard({
   icon: Icon,
   className
 }: KPICardProps) {
+  const sourceLabel = {
+    ACTUAL: 'DỮ LIỆU THỰC',
+    ESTIMATED: 'ƯỚC TÍNH',
+    ASSUMPTION: 'GIẢ ĐỊNH',
+    SIMULATED: 'MÔ PHỎNG',
+  }[sourceType];
   const isPositive = trend === 'up';
   const isNegative = trend === 'down';
 
@@ -81,7 +87,7 @@ export function KPICard({
                   sourceType === 'ASSUMPTION' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
                 )}
               >
-                {sourceType}
+                {sourceLabel}
               </span>
             )}
           </div>

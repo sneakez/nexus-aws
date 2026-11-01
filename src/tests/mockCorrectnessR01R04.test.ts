@@ -129,9 +129,11 @@ describe('Mock Core Correctness & Table Persistence (R01, R02, R03, R04, R05, R0
     expect(dupRes.error).toContain('trùng lặp');
   });
 
-  it('R06: verifies Operations Manager has fee reconciliation access and permissions', () => {
+  it('R06: keeps Manager reconciliation permission inside the consolidated MVP economics pages', () => {
     expect(hasPermission('manager', 'finance:reconcile')).toBe(true);
-    expect(getAllowedPagesForRole('manager')).toContain('feeReconciliation');
+    expect(getAllowedPagesForRole('manager')).toContain('orderEconomics');
+    expect(getAllowedPagesForRole('manager')).toContain('channelEconomics');
+    expect(getAllowedPagesForRole('manager')).not.toContain('feeReconciliation');
   });
 
   it('R07/R08: prevents double restock on return QC inspection', () => {

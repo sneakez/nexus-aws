@@ -11,6 +11,7 @@ interface TopbarProps {
   searchPlaceholder?: string;
   onMobileMenu?: () => void;
   onNavigate?: (pageId: string) => void;
+  showSearch?: boolean;
 }
 
 interface NotificationItem {
@@ -60,6 +61,7 @@ export function Topbar({
   searchPlaceholder = 'Tìm kiếm đơn hàng, SKU, khách hàng...',
   onMobileMenu,
   onNavigate,
+  showSearch = true,
 }: TopbarProps) {
   const { activeTenant, memberships, switchTenant } = useAuth();
   const [showSwitcher, setShowSwitcher] = useState(false);
@@ -112,7 +114,7 @@ export function Topbar({
           {/* Breadcrumb Hierarchy (replaces redundant giant page header in Topbar) */}
           <nav className="flex items-center gap-1.5 text-xs truncate min-w-0" aria-label="Breadcrumb">
             <span className="font-semibold text-slate-400 hover:text-slate-600 transition-colors hidden sm:inline">
-              Dream Terus
+              NexusOMS
             </span>
             <ChevronRight size={13} className="text-slate-300 hidden sm:inline shrink-0" />
             <span className="text-xs font-bold text-[#123A52] tracking-tight truncate">
@@ -124,7 +126,7 @@ export function Topbar({
         {/* Center / Right Section */}
         <div className="flex items-center gap-2.5 shrink-0">
           {/* Global Search with Clear Context */}
-          <div className="relative hidden md:block group">
+          {showSearch && <div className="relative hidden md:block group">
             <Search
               size={14}
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#1E647F] transition-colors"
@@ -135,7 +137,7 @@ export function Topbar({
               placeholder={searchPlaceholder}
               className="w-48 lg:w-64 rounded-lg border border-[#D9E3E8] bg-slate-50 pl-8 pr-3 py-1.5 text-xs text-[#123A52] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E647F]/20 focus:border-[#1E647F] focus:bg-white transition-all duration-150"
             />
-          </div>
+          </div>}
 
           {/* Workspace Switcher */}
           {memberships.length > 0 && (

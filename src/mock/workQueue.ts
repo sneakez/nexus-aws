@@ -36,5 +36,13 @@ export function workQueue(state: MockDatabaseSnapshot, role: TenantRole): WorkIt
   }
   for (const event of state.marketplaceEvents || []) if (event.tenant_id === member.tenant_id && event.status !== 'processed' && (!member.shop_ids || member.shop_ids.includes(event.shop_id))) add({ id: `sync:${event.id}`, entityId: event.id, group: 'admin', title: `${event.order.order_number} · ${event.shop_id} · đồng bộ đơn nguồn`, step: 'sync', status: event.status === 'failed' ? 'blocked' : 'new', href: 'syncMonitor' });
   for (const rec of state.growthRecommendations || []) if (rec.tenant_id === member.tenant_id && orders.some(o => o.id === rec.order_id) && rec.status === 'open') add({ id: `recommendation:${rec.id}`, orderId: rec.order_id, entityId: rec.id, group: 'manager', title: rec.reason, step: 'recommendation', status: 'new', href: `orderEconomics&order=${rec.order_id}` });
+  for (const o of orders) {
+    const record=state.handoffAssignments?.[`monitor:${o.id}`];
+    if(record?.status && record.status!=='confirmed') {
+      const existing=tasks.find(t=>t.id===`monitor:${o.id}`);
+      const item: WorkItem={id:`monitor:${o.id}`,orderId:o.id,entityId:o.id,group:'manager',title:`Đơn ${o.order_number} · ngoại lệ: ${record.note}`,step:'monitor',status:record.due_at&&Date.parse(record.due_at)<Date.now()?'overdue':'processing',due:record.due_at,href:`orders&order=${o.id}`};
+      if(existing)Object.assign(existing,item);else add(item);
+    }
+  }
   return tasks.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
 }

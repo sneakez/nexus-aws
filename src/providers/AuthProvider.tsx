@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, useCallback, type React
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { isMockMode } from '@/lib/config';
-import { mockStore } from '@/mock/store';
+import { omsStore } from '@/stores/omsStore';
 import type { Profile, UserRole, Tenant, TenantMembership, TenantRole } from '@/types';
 
 interface AuthContextValue {
@@ -40,17 +40,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Sync mock store state when in mock mode
   const syncFromMockStore = useCallback(() => {
     if (!isMockMode()) return;
-    const snap = mockStore.getSnapshot();
-    const currTenant = mockStore.getActiveTenant();
-    const currRole = mockStore.getActiveRole();
+    const snap = omsStore.getSnapshot();
+    const currTenant = omsStore.getActiveTenant();
+    const currRole = omsStore.getActiveRole();
 
     setActiveTenant(currTenant);
     setActiveRole(currRole);
     setMemberships(snap.memberships);
 
     const activeProfile = snap.profiles.find(p => p.id === snap.activeUserId);
-    setProfile(activeProfile || null);
-    if (!activeProfile || !mockStore.getExecutionContext()) { setSession(null); setLoading(false); return; }
+    const isMvpRole = (['owner', 'manager', 'warehouse'] as TenantRole[]).includes(currRole);
+    if (!activeProfile || !omsStore.getExecutionContext() || !isMvpRole) {
+      setProfile(null);
+      setSession(null);
+      setLoading(false);
+      return;
+    }
+    setProfile(activeProfile);
 
     setSession({
       user: {
@@ -137,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isMockMode()) {
       syncFromMockStore();
-      const unsub = mockStore.subscribe((event) => {
+      const unsub = omsStore.subscribe((event) => {
         if (event?.topic === 'ROLE_SWITCHED' || event?.topic === 'DATABASE_RESET') {
           syncFromMockStore();
         }
@@ -185,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signIn(email: string, password: string) {
     if (isMockMode()) {
-      const result = mockStore.signInDemoUser(email);
+      const result = omsStore.signInDemoUser(email);
       if (!result.success) return { error: result.error || 'Không đăng nhập được tài khoản demo' };
       syncFromMockStore();
       return { error: null };
@@ -198,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signUp(email: string, password: string, fullName: string) {
     if (isMockMode()) {
-      mockStore.setActiveRole('owner');
+      omsStore.setActiveRole('owner');
       syncFromMockStore();
       return { 
         error: null, 
@@ -236,7 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function switchTenant(tenantId: string) {
     if (isMockMode()) {
-      mockStore.setActiveTenant(tenantId);
+      omsStore.setActiveTenant(tenantId);
       syncFromMockStore();
       return;
     }
@@ -248,14 +254,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function switchRole(role: TenantRole) {
     if (isMockMode()) {
-      mockStore.setActiveRole(role);
+      omsStore.setActiveRole(role);
       syncFromMockStore();
     }
   }
 
   async function signOut() {
     if (isMockMode()) {
-      mockStore.signOutDemoUser();
+      omsStore.signOutDemoUser();
       setSession(null);
       setProfile(null);
       setActiveTenant(null);
@@ -274,7 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      mockStore.setActiveTenant(newTenant.id);
+      omsStore.setActiveTenant(newTenant.id);
       syncFromMockStore();
       return { tenant: newTenant, error: null };
     }

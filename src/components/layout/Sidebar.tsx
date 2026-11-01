@@ -6,24 +6,14 @@ import {
   Truck,
   ArrowUUpLeft,
   Users,
-  Package,
   Warehouse,
-  ClipboardText,
   ArrowsLeftRight,
-  BookOpenText,
   Receipt,
   Percent,
   ChartBar,
   Wallet,
   Calculator,
-  Target,
-  Heart,
-  ChartLineUp,
-  CheckSquare,
   PlugsConnected,
-  Gear,
-  ShieldCheck,
-  CheckCircle,
   SignOut,
   CaretDown,
   CaretLeft,
@@ -33,155 +23,29 @@ import {
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/providers/AuthProvider';
-import { getAllowedPagesForRole, ENABLE_FINANCE_ROLE } from '@/lib/permissions';
+import { getAllowedPagesForRole } from '@/lib/permissions';
 import type { TenantRole } from '@/types';
+import { NAVIGATION_GROUPS } from '@/app/navigation';
+import type { PageId } from '@/app/types';
 
-export type PageId =
-  // 1. Command Center
-  | 'workQueue'
-  | 'dashboard'
-  | 'operationsAnalytics'
-  // 2. Commerce Operations
-  | 'orders'
-  | 'fulfillment'
-  | 'returns'
-  | 'customers'
-  // 3. Product & Inventory
-  | 'products'
-  | 'inventory'
-  | 'purchaseOrders'
-  | 'transfers'
-  | 'stockLedger'
-  | 'batches'
-  | 'warehouses'
-  // 4. Finance & Economics
-  | 'orderEconomics'
-  | 'skuEconomics'
-  | 'channelEconomics'
-  | 'cashWorkingCapital'
-  | 'pricingCalculator'
-  // 5. Growth & Marketing
-  | 'marketingAnalytics'
-  | 'customerAnalytics'
-  | 'salesAnalytics'
-  | 'inventoryAnalytics'
-  // 6. Founder Execution
-  | 'founderExecution'
-  // Governance & Admin / Utilities
-  | 'channelConnections'
-  | 'settings'
-  | 'auditTrail'
-  | 'ownerValidation'
-  | 'businessRules'
-  | 'simulator'
-  // Legacy retained routes (accessible via deep-link or redirect)
-  | 'ledger'
-  | 'feeReconciliation'
-  | 'marginControl'
-  | 'salesVelocity'
-  | 'revenueReport'
-  | 'bufferRules'
-  | 'routingRules'
-  | 'channelMapping'
-  | 'syncMonitor'
-  | 'complaints'
-  | 'automationRules'
-  | 'webhooks'
-  | 'flowGuide';
+const PAGE_ICONS: Record<PageId, PhosphorIcon> = {
+  dashboard: SquaresFour,
+  inventory: Warehouse,
+  orders: ShoppingBag,
+  fulfillment: Truck,
+  returns: ArrowUUpLeft,
+  customers: Users,
+  orderEconomics: Receipt,
+  skuEconomics: Percent,
+  channelEconomics: ChartBar,
+  cashWorkingCapital: Wallet,
+  pricingCalculator: Calculator,
+  channelConnections: PlugsConnected,
+  channelMapping: ArrowsLeftRight,
+  simulator: Pulse,
+};
 
-interface NavItem {
-  id: PageId;
-  label: string;
-  icon: PhosphorIcon;
-  badge?: string;
-  isMockOnly?: boolean;
-}
-
-interface NavGroup {
-  label: string;
-  items: NavItem[];
-}
-
-const navGroups: NavGroup[] = [
-  {
-    label: 'TỔNG QUAN',
-    items: [
-      { id: 'dashboard', label: 'Tổng quan', icon: SquaresFour },
-      { id: 'workQueue', label: 'Công việc & bàn giao', icon: ClipboardText },
-      { id: 'operationsAnalytics', label: 'Vận hành kho', icon: Pulse },
-    ],
-  },
-  {
-    label: 'VẬN HÀNH ĐƠN',
-    items: [
-      { id: 'orders', label: 'Đơn hàng', icon: ShoppingBag },
-      { id: 'fulfillment', label: 'Xử lý đơn', icon: Truck },
-      { id: 'returns', label: 'Đổi trả hàng', icon: ArrowUUpLeft },
-      { id: 'customers', label: 'Khách hàng', icon: Users },
-    ],
-  },
-  {
-    label: 'KHO & HÀNG HÓA',
-    items: [
-      { id: 'products', label: 'Sản phẩm', icon: Package },
-      { id: 'inventory', label: 'Quản lý kho', icon: Warehouse },
-      { id: 'purchaseOrders', label: 'Nhập hàng', icon: ClipboardText },
-      { id: 'transfers', label: 'Chuyển kho', icon: ArrowsLeftRight },
-      { id: 'batches', label: 'Lô hàng', icon: Package },
-      { id: 'warehouses', label: 'Danh sách kho', icon: Warehouse },
-      { id: 'inventoryAnalytics', label: 'Phân tích tồn kho', icon: ChartBar },
-      { id: 'stockLedger', label: 'Sổ thẻ kho', icon: BookOpenText },
-    ],
-  },
-  {
-    label: 'TÀI CHÍNH & P&L',
-    items: [
-      { id: 'orderEconomics', label: 'Lợi nhuận đơn', icon: Receipt },
-      { id: 'skuEconomics', label: 'Lợi nhuận SKU', icon: Percent },
-      { id: 'channelEconomics', label: 'Hiệu quả kênh', icon: ChartBar },
-      { id: 'cashWorkingCapital', label: 'Dòng tiền', icon: Wallet },
-      { id: 'feeReconciliation', label: 'Đối soát phí', icon: Receipt },
-      { id: 'ledger', label: 'Sổ kế toán', icon: BookOpenText },
-      { id: 'marginControl', label: 'Kiểm soát biên lợi nhuận', icon: Percent },
-      { id: 'salesVelocity', label: 'Tốc độ bán', icon: ChartLineUp },
-      { id: 'revenueReport', label: 'Báo cáo doanh thu', icon: ChartBar },
-      { id: 'pricingCalculator', label: 'Định giá bán', icon: Calculator },
-    ],
-  },
-  {
-    label: 'TĂNG TRƯỞNG & ADS',
-    items: [
-      { id: 'marketingAnalytics', label: 'Hiệu quả Ads', icon: Target },
-      { id: 'customerAnalytics', label: 'Phân tích khách', icon: Heart },
-      { id: 'salesAnalytics', label: 'Doanh số bán', icon: ChartLineUp },
-    ],
-  },
-  {
-    label: 'DÀNH CHO FOUNDER',
-    items: [
-      { id: 'founderExecution', label: 'Nhật ký Founder', icon: CheckSquare },
-    ],
-  },
-  {
-    label: 'CẤU HÌNH & KẾT NỐI',
-    items: [
-      { id: 'channelConnections', label: 'Kết nối sàn', icon: PlugsConnected },
-      { id: 'settings', label: 'Cấu hình', icon: Gear },
-      { id: 'channelMapping', label: 'Ánh xạ SKU', icon: Package },
-      { id: 'syncMonitor', label: 'Nhật ký đồng bộ', icon: ArrowsLeftRight },
-      { id: 'complaints', label: 'Khiếu nại khách hàng', icon: Users },
-      { id: 'bufferRules', label: 'Tồn kho an toàn', icon: Warehouse },
-      { id: 'routingRules', label: 'Định tuyến kho', icon: ArrowsLeftRight },
-      { id: 'automationRules', label: 'Quy tắc tự động', icon: Gear },
-      { id: 'webhooks', label: 'Webhooks', icon: PlugsConnected },
-      { id: 'ownerValidation', label: 'Kiểm chứng Owner', icon: ShieldCheck },
-      { id: 'businessRules', label: 'Quy tắc nghiệp vụ', icon: ClipboardText },
-      { id: 'simulator', label: 'Mô phỏng', icon: Pulse },
-      { id: 'flowGuide', label: 'Hướng dẫn vận hành', icon: BookOpenText },
-      { id: 'auditTrail', label: 'Nhật ký duyệt', icon: ShieldCheck },
-    ],
-  },
-];
+export type { PageId } from '@/app/types';
 
 interface SidebarProps {
   current: PageId;
@@ -203,12 +67,8 @@ const ROLE_LABELS: Record<TenantRole, string> = {
 
 const ALL_ROLES: Array<{ id: TenantRole; label: string; desc: string }> = [
   { id: 'owner', label: '👑 Chủ Doanh Nghiệp (Owner)', desc: 'Toàn quyền quản trị & duyệt tài chính' },
-  { id: 'admin', label: '⚡ Admin Quản Trị', desc: 'Quản trị hệ thống & nhân sự' },
   { id: 'manager', label: '📊 Trưởng Phòng OMS', desc: 'Quản lý đơn hàng, xuất nhập tồn' },
   { id: 'warehouse', label: '📦 Nhân Viên Kho', desc: 'Soạn hàng, đóng gói & kiểm định' },
-  { id: 'finance', label: '💰 Kế Toán Tài Chính', desc: 'Sổ kép, đối soát sàn & chi phí' },
-  { id: 'growth', label: '🚀 Tăng Trưởng & Ads', desc: 'Chiến dịch, ROAS & Cohorts' },
-  { id: 'viewer', label: '👁️ Người Xem (Chỉ Đọc)', desc: 'Chỉ đọc, không được sửa đổi' },
 ];
 
 export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose }: SidebarProps) {
@@ -256,7 +116,7 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
   );
 
   const filteredGroups = useMemo(() => {
-    return navGroups
+    return NAVIGATION_GROUPS
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => allowedPages.has(item.id)),
@@ -292,9 +152,9 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
                   <Warehouse size={18} weight="duotone" className="text-white" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[15px] font-black text-white tracking-tight truncate block">Dream Terus</span>
+                  <span className="text-[15px] font-black text-white tracking-tight truncate block">NexusOMS</span>
                   <p className="text-[10.5px] text-[#38BDF8] font-semibold flex items-center gap-1 truncate">
-                    Commerce OS
+                    FCAJ MVP Prototype
                   </p>
                 </div>
               </div>
@@ -340,7 +200,7 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
               <div className="space-y-0.5">
                 {group.items.map((item) => {
                   const active = current === item.id;
-                  const Icon = item.icon;
+                  const Icon = PAGE_ICONS[item.id];
                   const badge =
                     item.id === 'orders'
                        ? stats.pendingOrders > 0
@@ -350,7 +210,7 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
                       ? stats.lowStock > 0
                         ? `${stats.lowStock}`
                         : undefined
-                      : item.badge;
+                      : undefined;
 
                   // 1. Expanded Menu Item View
                   if (!isCollapsed) {
@@ -460,10 +320,10 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
             >
               <div className="px-2 py-1.5 text-[10px] font-bold text-teal-300 uppercase tracking-wider border-b border-slate-700/60 mb-1 flex items-center justify-between">
                 <span>Chuyển Đổi Vai Trò</span>
-                <span className="text-slate-400 font-mono">5 ROLES</span>
+                <span className="text-slate-400 font-mono">3 ROLES</span>
               </div>
               <div className="max-h-60 overflow-y-auto space-y-0.5">
-                {ALL_ROLES.filter(r => r.id !== 'viewer' && (r.id !== 'finance' || ENABLE_FINANCE_ROLE)).map((r) => {
+                {ALL_ROLES.map((r) => {
                   const isCurrent = currentRole === r.id;
                   return (
                     <button

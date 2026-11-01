@@ -202,6 +202,8 @@ describe('Audit Remediation & UAT Verification Suite (R01 - R28 & Roles)', () =>
 
     const managerPages = getAllowedPagesForRole('manager');
     expect(managerPages).toContain('orders');
-    expect(managerPages).toContain('feeReconciliation');
+    expect(managerPages).toContain('orderEconomics');
+    expect(managerPages).toContain('channelEconomics');
+    expect(managerPages).not.toContain('feeReconciliation');
   });
 });

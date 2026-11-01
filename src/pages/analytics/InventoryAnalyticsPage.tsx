@@ -355,7 +355,7 @@ export function InventoryAnalyticsPage({ onNavigate }: InventoryAnalyticsPagePro
                     <td className="py-2.5 px-3 text-right">
                       {isRisk ? (
                         <button
-                          onClick={() => onNavigate && onNavigate('purchaseOrders')}
+                          onClick={() => onNavigate && onNavigate('inventory')}
                           className="btn btn-primary text-[10px] py-1 px-2.5 whitespace-nowrap"
                           title="Tạo đơn mua hàng bổ sung tồn"
                         >

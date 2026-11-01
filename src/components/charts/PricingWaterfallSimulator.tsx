@@ -6,12 +6,15 @@ import { WaterfallChart } from './WaterfallChart';
 import { cn } from '@/lib/cn';
 
 interface PricingWaterfallSimulatorProps {
+  lowMarginPercent?: number;
   initialValues?: Partial<PricingSimulationInput>;
   className?: string;
 }
 
-export function PricingWaterfallSimulator({ initialValues, className }: PricingWaterfallSimulatorProps) {
+export function PricingWaterfallSimulator({ initialValues, className, lowMarginPercent = 10 }: PricingWaterfallSimulatorProps) {
   const defaultInput: PricingSimulationInput = {
+    configuredTaxPercent: initialValues?.configuredTaxPercent ?? 0,
+    taxIncludedInFees: initialValues?.taxIncludedInFees ?? false,
     basePrice: initialValues?.basePrice ?? 550000,
     cogs: initialValues?.cogs ?? 220000,
     marketplaceFeePercent: initialValues?.marketplaceFeePercent ?? 9.5,
@@ -32,6 +35,8 @@ export function PricingWaterfallSimulator({ initialValues, className }: PricingW
 
   return (
     <div className={cn('grid grid-cols-1 lg:grid-cols-12 gap-5', className)}>
+      <p className="lg:col-span-12 text-xs text-slate-500">Mô phỏng trước bán · thuế/phí tự nhập {input.configuredTaxPercent || 0}% {input.taxIncludedInFees ? '(đã nằm trong phí khác, không cộng lại)' : '(cộng riêng)'}. Không cập nhật giá sàn. {result.simulatedCm3Margin < lowMarginPercent ? `Cảnh báo: CM3 ${result.simulatedCm3Margin.toFixed(1)}% dưới ngưỡng ${lowMarginPercent}%` : 'Đối chiếu đơn thực tế trước quyết định.'}</p>
+      {result.valid === false && <p role="alert" className="lg:col-span-12 text-sm text-rose-700">{result.invalidReason}</p>}
       {/* Left Column: Interactive Inputs */}
       <div className="lg:col-span-5 space-y-4 p-4 sm:p-5 rounded-xl bg-ink-50/70 border border-ink-200">
         <div className="flex items-center justify-between">
@@ -84,7 +89,7 @@ export function PricingWaterfallSimulator({ initialValues, className }: PricingW
             <div>
               <label className="font-semibold text-ink-800 block text-[11px]">
                 Phí sàn TMĐT (%):
-                <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded ml-1 font-mono">ASSUMPTION</span>
+                <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded ml-1 font-mono">GIẢ ĐỊNH</span>
               </label>
               <input
                 type="number"
@@ -97,7 +102,7 @@ export function PricingWaterfallSimulator({ initialValues, className }: PricingW
             <div>
               <label className="font-semibold text-ink-800 block text-[11px]">
                 Phí cổng thanh toán (%):
-                <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded ml-1 font-mono">ASSUMPTION</span>
+                <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded ml-1 font-mono">GIẢ ĐỊNH</span>
               </label>
               <input
                 type="number"

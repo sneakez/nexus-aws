@@ -723,6 +723,7 @@ export interface MarginConfig {
 }
 
 export interface ChannelConnection {
+  tenant_id?: string;
   id: string;
   channel: Channel;
   shop_name: string;

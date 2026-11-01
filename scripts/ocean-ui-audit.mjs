@@ -2,7 +2,7 @@ import { launchUatBrowser } from './uat-browser.mjs';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-const dir = 'artifacts/ocean-restore';
+const dir = process.env.UAT_OUTPUT_DIR || 'artifacts/ocean-restore';
 await fs.mkdir(`${dir}/menus`, { recursive: true });
 const browser = await launchUatBrowser();
 const page = await browser.newPage();

@@ -1,3 +1,4 @@
+import { EconomicsPeriod, type EconomicsPeriodValue } from '@/components/charts/EconomicsPeriod';
 import { mockStore } from '@/mock/store';
 import { useAuth } from '@/providers/AuthProvider';
 import { hasPermission } from '@/lib/permissions';
@@ -51,7 +52,8 @@ export function MarketingAnalyticsPage() {
   const [, revise] = useState(0);
   const recommendations = mockStore.getGrowthRecommendations();
   const act = (fn: () => { success: boolean; error?: string }) => { try { const r = fn(); toast(r.success ? 'Đã bàn giao quyết định' : r.error || 'Không thể lưu', r.success ? 'success' : 'error'); revise(n => n + 1); } catch (e) { toast((e as Error).message, 'error'); } };
-  const campaigns = analyticsService.getMarketingPerformance();
+  const [period,setPeriod]=useState<EconomicsPeriodValue>('all');
+  const campaigns = analyticsService.getMarketingPerformance(period === 'all' ? undefined : period);
 
   // Active view mode: Table, Trend Line, Bar
   const [viewMode, setViewMode] = useState<ReportViewMode>('table');
@@ -64,17 +66,19 @@ export function MarketingAnalyticsPage() {
   const [selectedExportFormat, setSelectedExportFormat] = useState<'table' | 'trend' | 'bar'>('table');
   const [reportNote, setReportNote] = useState('');
 
-  // Aggregated KPIs
-  const totalAdSpend = campaigns.reduce((sum, c) => sum + c.adSpend, 0);
-  const totalAttributedRevenue = campaigns.reduce((sum, c) => sum + c.attributedRevenue, 0);
-  const blendedRoas = totalAdSpend > 0 ? totalAttributedRevenue / totalAdSpend : 0;
-  const totalCmAfterAds = campaigns.reduce((sum, c) => sum + c.cmAfterAds, 0);
-
   // Filtered campaigns
   const filteredCampaigns = useMemo(() => {
     if (channelFilter === 'all') return campaigns;
     return campaigns.filter((c) => c.channel === channelFilter || c.platform.toLowerCase().includes(channelFilter));
   }, [campaigns, channelFilter]);
+
+  // Aggregated KPIs
+  const grossAdSpend = filteredCampaigns.reduce((sum, c) => sum + c.adSpend, 0);
+  const adsCredit = filteredCampaigns.reduce((sum,c) => sum + (c.adsCredit || 0),0);
+  const totalAdSpend = grossAdSpend - adsCredit;
+  const totalAttributedRevenue = filteredCampaigns.reduce((sum, c) => sum + c.attributedRevenue, 0);
+  const blendedRoas = totalAdSpend > 0 ? totalAttributedRevenue / totalAdSpend : 0;
+  const totalCmAfterAds = filteredCampaigns.reduce((sum, c) => sum + c.cmAfterAds, 0);
 
   // Trend line chart data (Daily ROAS vs CPA progression)
   const trendData = useMemo(() => {
@@ -98,6 +102,7 @@ export function MarketingAnalyticsPage() {
       adSpend: c.adSpend,
       attributedRevenue: c.attributedRevenue,
       roas: c.roas,
+      ratioAvailable: (c.netSpend ?? c.adSpend) > 0,
       cmAfterAds: c.cmAfterAds,
       cpa: Math.round(c.cpa),
     }));
@@ -119,11 +124,12 @@ export function MarketingAnalyticsPage() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-7xl mx-auto animate-fade-in-up font-sans">
+      <EconomicsPeriod value={period} onChange={setPeriod}/>
       {/* 1. Header & Quick Export CTA */}
       <PageHeader
         icon={Target}
-        title="Marketing Analytics & Hiệu Quả Quảng Cáo (ROAS & CAC)"
-        subtitle="Đo lường chi phí Ads, doanh thu phân bổ, ROAS hòa vốn và lợi nhuận đóng góp ròng (CM3)"
+        title="Marketing Analytics & Hiệu Quả Quảng Cáo (Doanh thu / Ads)"
+        subtitle={`Nguồn mock, chưa attribution campaign. Gross Ads ${formatCurrency(grossAdSpend)} − credit ${formatCurrency(adsCredit)} = net ${formatCurrency(totalAdSpend)}.`}
         badge={
           <span className="badge bg-purple-50 text-purple-800 border-purple-200 text-xs font-semibold">
             Attribution &amp; CM3
@@ -145,24 +151,24 @@ export function MarketingAnalyticsPage() {
       {/* 2. Top Metric Strip (4 High-level KPI Cards) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <KPICard
-          title="Tổng Chi Phí Quảng Cáo (Ad Spend)"
+          title="Chi Phí Ads Net"
           value={formatCurrency(totalAdSpend)}
-          subtitle="Tất cả chiến dịch đang active"
+          subtitle="Gross spend − Ads credit · dữ liệu shop demo"
           icon={DollarSign}
         />
         <KPICard
-          title="Doanh Thu Gán Thuộc (Attributed)"
+          title="Doanh Thu Net Giữ Lại"
           value={formatCurrency(totalAttributedRevenue)}
-          subtitle="Ghi nhận từ các nguồn traffic trả phí"
+          subtitle="Tổng net của đơn trong nhóm shop; chưa attribution"
           sourceType="ESTIMATED"
           highlight
           icon={TrendingUp}
         />
         <KPICard
-          title="Blended ROAS (Doanh Thu / Ads)"
-          value={`${blendedRoas.toFixed(2)}x`}
-          subtitle="Điểm hòa vốn biên: 2.8x - 3.2x"
-          badge="Healthy"
+          title="Doanh thu giữ lại / Ads net"
+          value={totalAdSpend > 0 ? `${blendedRoas.toFixed(2)}x` : 'Chưa đủ dữ liệu'}
+          subtitle="Net doanh thu / (gross Ads − credit); chưa attribution"
+          badge={totalAdSpend > 0 ? 'Chưa có attribution campaign' : 'Chưa đủ dữ liệu'}
           sourceType="ESTIMATED"
           highlight
           icon={Target}
@@ -245,21 +251,21 @@ export function MarketingAnalyticsPage() {
       {/* MODE 1: BẢNG TỔNG HỢP */}
       {viewMode === 'table' && (
         <AnalyticsCard
-          title="Bảng Phân Tích Hiệu Suất Chiến Dịch Marketing (Campaign Profitability)"
-          subtitle="Hiển thị rõ CPC, CPA, ROAS và Lợi nhuận đóng góp sau Ads (CM3). Các số liệu phân bổ được gắn nhãn ESTIMATED."
-          formulaExplanation="ROAS = Attributed Revenue / Ad Spend; CM After Ads = Attributed Revenue - COGS - Phí sàn - Ad Spend"
+          title="Bảng Hiệu Quả Nhóm Shop · chưa attribution campaign"
+          subtitle="Net doanh thu, gross/credit/net Ads và CM3 từ đơn nguồn. CPC chưa có impressions/clicks. Không coi tổng shop là attributed revenue."
+          formulaExplanation="Tỷ lệ = doanh thu net đơn đã giao / (gross Ads − credit); CM3 trừ chi phí thực, bồi thường tách khỏi sales"
         >
           <div className="overflow-x-auto pt-1">
             <table className="w-full text-xs min-w-[880px] border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-50/70">
-                  <th className="py-2.5 px-3 text-left font-semibold">Tên Chiến Dịch</th>
+                  <th className="py-2.5 px-3 text-left font-semibold">Nhóm Shop</th>
                   <th className="py-2.5 px-3 text-left font-semibold">Nền Tảng</th>
                   <th className="py-2.5 px-3 text-right font-semibold">Ngân Sách Ads</th>
                   <th className="py-2.5 px-3 text-right font-semibold">CPC (₫)</th>
                   <th className="py-2.5 px-3 text-right font-semibold">CPA (Chi Phí/Đơn)</th>
                   <th className="py-2.5 px-3 text-right font-semibold">Doanh Thu Thuần</th>
-                  <th className="py-2.5 px-3 text-right font-semibold text-brand-900">ROAS</th>
+                  <th className="py-2.5 px-3 text-right font-semibold text-brand-900">Net doanh thu / Ads net</th>
                   <th className="py-2.5 px-3 text-right font-semibold text-emerald-800">Lợi Nhuận Sau Ads</th>
                   <th className="py-2.5 px-3 text-center font-semibold">Đánh Giá</th>
                 </tr>
@@ -276,13 +282,13 @@ export function MarketingAnalyticsPage() {
                         </span>
                       </td>
                       <td className="py-3 px-3 font-medium text-slate-700">{c.platform}</td>
-                      <td className="py-3 px-3 text-right font-medium">{formatCurrency(c.adSpend)}</td>
+                      <td className="py-3 px-3 text-right font-medium">{formatCurrency(c.netSpend ?? c.adSpend)}<small className="block text-slate-500">Gross {formatCurrency(c.adSpend)} · Credit {formatCurrency(c.adsCredit || 0)}</small></td>
                       <td className="py-3 px-3 text-right text-slate-600">{formatCurrency(c.cpc)}</td>
                       <td className="py-3 px-3 text-right text-slate-600">{formatCurrency(Math.round(c.cpa))}</td>
                       <td className="py-3 px-3 text-right font-bold text-slate-900">
                         {formatCurrency(c.attributedRevenue)}
                       </td>
-                      <td className="py-3 px-3 text-right font-bold text-brand-900">{c.roas}x</td>
+                      <td className="py-3 px-3 text-right font-bold text-brand-900">{(c.netSpend ?? c.adSpend) > 0 ? `${c.roas.toFixed(2)}x` : 'Chưa đủ dữ liệu'}</td>
                       <td className="py-3 px-3 text-right font-bold">
                         <span className={cn(isLoss ? 'text-rose-600' : 'text-emerald-600')}>
                           {formatCurrency(c.cmAfterAds)}
@@ -299,7 +305,7 @@ export function MarketingAnalyticsPage() {
                               : 'bg-rose-50 text-rose-800 border-rose-200'
                           )}
                         >
-                          {c.status}
+                          {c.status === 'INSUFFICIENT_DATA' ? 'Chưa đủ dữ liệu' : c.status}
                         </span>
                       </td>
                     </tr>
@@ -314,9 +320,9 @@ export function MarketingAnalyticsPage() {
       {/* MODE 2: BIỂU ĐỒ ĐƯỜNG XU HƯỚNG */}
       {viewMode === 'trend' && (
         <AnalyticsCard
-          title="Biểu Đồ Đường Xu Hướng: Diễn Biến ROAS &amp; CPA Theo Thời Gian"
+          title="MINH HỌA · Biểu Đồ Đường Xu Hướng: Diễn Biến Doanh thu / Ads &amp; CPA Theo Thời Gian"
           subtitle="So sánh dữ liệu theo ngày để khám phá xu hướng đốt tiền và hiệu quả chuyển đổi đơn hàng"
-          formulaExplanation="ROAS = Doanh thu / Ads; CPA = Ad Spend / Số đơn hàng"
+          formulaExplanation="MINH HỌA ngày; không phải dữ liệu attribution. Bảng dùng net doanh thu / Ads net."
           sourceType="SIMULATED"
           action={
             <div className="flex items-center gap-3 text-xs">
@@ -356,7 +362,7 @@ export function MarketingAnalyticsPage() {
                       <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-700 text-xs space-y-1">
                         <p className="font-bold text-brand-300 border-b border-slate-700 pb-1">Ngày {label}</p>
                         <p className="flex justify-between gap-4">
-                          <span className="text-slate-400">ROAS:</span>
+                          <span className="text-slate-400">Net doanh thu / Ads net:</span>
                           <span className="text-indigo-400 font-bold">{d?.roas}x</span>
                         </p>
                         <p className="flex justify-between gap-4">
@@ -410,7 +416,7 @@ export function MarketingAnalyticsPage() {
         <AnalyticsCard
           title="Biểu Đồ Cột: So Sánh Ngân Sách Ads vs Doanh Thu Phân Bổ Theo Từng Chiến Dịch"
           subtitle="So sánh các số liệu khác nhau theo từng phần chia nhỏ để phát hiện chiến dịch sinh lời cao nhất"
-          formulaExplanation="Cột xanh: Ngân sách Ads; Cột tím: Doanh thu mang về; Số trên cột: ROAS"
+          formulaExplanation="Cột xanh: gross Ads; cột tím: net doanh thu shop (chưa attribution); tỷ lệ dùng Ads net"
           sourceType="ESTIMATED"
         >
           <div className="w-full h-[360px] pt-4">
@@ -441,12 +447,12 @@ export function MarketingAnalyticsPage() {
                           <span className="text-emerald-400 font-bold">{formatCurrency(item.adSpend)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400">Doanh thu phân bổ:</span>
+                          <span className="text-slate-400">Net doanh thu shop:</span>
                           <span className="text-indigo-400 font-bold">{formatCurrency(item.attributedRevenue)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400">ROAS:</span>
-                          <span className="text-amber-300 font-bold">{item.roas}x</span>
+                          <span className="text-slate-400">Net doanh thu / Ads net:</span>
+                          <span className="text-amber-300 font-bold">{item.ratioAvailable ? `${item.roas}x` : 'Chưa đủ dữ liệu'}</span>
                         </div>
                         <div className="flex justify-between pt-1 border-t border-slate-700">
                           <span className="text-slate-400">Lợi nhuận sau Ads:</span>
@@ -537,7 +543,7 @@ export function MarketingAnalyticsPage() {
                 />
               </div>
               <p className="text-slate-500 text-xs mt-0.5">
-                So sánh dữ liệu theo thời gian để khám phá xu hướng ROAS &amp; CPA.
+                So sánh dữ liệu theo thời gian để khám phá xu hướng Doanh thu / Ads &amp; CPA.
               </p>
             </div>
           </div>

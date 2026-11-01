@@ -24,6 +24,12 @@ export function AnalyticsCard({
   className,
   footer
 }: AnalyticsCardProps) {
+  const sourceLabel = {
+    ACTUAL: 'DỮ LIỆU THỰC',
+    ESTIMATED: 'ƯỚC TÍNH',
+    ASSUMPTION: 'GIẢ ĐỊNH',
+    SIMULATED: 'MÔ PHỎNG',
+  }[sourceType];
   return (
     <div className={cn('bg-white border border-[#D9E3E8] rounded-xl p-4 sm:p-5 shadow-xs flex flex-col', className)}>
       {/* Card Header */}
@@ -40,7 +46,7 @@ export function AnalyticsCard({
                     : 'bg-blue-50 text-blue-800 border-blue-300'
                 )}
               >
-                {sourceType}
+                {sourceLabel}
               </span>
             )}
             {formulaExplanation && (

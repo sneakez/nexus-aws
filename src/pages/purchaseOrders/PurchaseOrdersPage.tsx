@@ -110,7 +110,7 @@ export function PurchaseOrdersPage({ search }: PurchaseOrdersPageProps) {
       toast('Không thể xác nhận PO: ' + error.message, 'error');
       return;
     }
-    toast('✓ Đã duyệt và gửi đơn mua hàng sang nhà cung cấp', 'success');
+    toast('Đã xác nhận PO mô phỏng; chưa gửi NCC thật', 'success');
     load();
   }
 
@@ -378,6 +378,7 @@ export function PurchaseOrdersPage({ search }: PurchaseOrdersPageProps) {
                       </div>
                     </div>
 
+                    <p className="text-xs text-slate-600">Hàng nhận và tiền trả độc lập. Nợ ghi theo giá trị thực nhận từng đợt, chưa chi khi tạo/xác nhận PO. {hasPermission(activeRole,'finance:view') && <a className="text-sky-700 underline" href="?page=cashWorkingCapital">Mở công nợ / chứng từ thanh toán</a>}</p>
                     {/* Table of items */}
                     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                       <table className="w-full text-xs">
@@ -604,14 +605,14 @@ function POFormModal({ open, warehouses, products, onClose, onSaved }: FormProps
             <input
               value={supplier}
               onChange={(e) => setSupplier(e.target.value)}
-              placeholder="Ví dụ: Foxconn VN, Synnex FPT..."
+              aria-label="Nhà cung cấp PO" placeholder="Ví dụ: Foxconn VN, Synnex FPT..."
               className="input"
             />
           </div>
           <div>
             <label className="label">Kho tiếp nhận hàng *</label>
             <select
-              value={warehouseId}
+              aria-label="Kho nhận PO" value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
               className="input"
             >
@@ -686,7 +687,7 @@ function POFormModal({ open, warehouses, products, onClose, onSaved }: FormProps
                   value={line.quantity}
                   onChange={(e) => updateLine(idx, { quantity: Number(e.target.value) })}
                   className="input w-20 text-xs text-right"
-                  placeholder="SL"
+                  aria-label={`SL PO ${idx}`} placeholder="SL"
                 />
 
                 <input
@@ -696,7 +697,7 @@ function POFormModal({ open, warehouses, products, onClose, onSaved }: FormProps
                   value={line.unit_cost}
                   onChange={(e) => updateLine(idx, { unit_cost: Number(e.target.value) })}
                   className="input w-32 text-xs text-right"
-                  placeholder="Đơn giá"
+                  aria-label={`Đơn giá PO ${idx}`} placeholder="Đơn giá"
                 />
 
                 <button

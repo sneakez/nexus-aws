@@ -123,10 +123,11 @@ describe('NexusOMS V6 Phase 2 — Digital Commerce Only Regression & Reconciliat
     });
 
     // Working Capital
-    expect(Number.isFinite(workingCap.cashConversionCycleDays)).toBe(true);
-    expect(Number.isFinite(workingCap.daysInventoryOutstanding)).toBe(true);
-    expect(Number.isFinite(workingCap.daysSalesOutstanding)).toBe(true);
-    expect(Number.isFinite(workingCap.daysPayablesOutstanding)).toBe(true);
+    // No fixed 42/8/16/34-day conclusion when cash-document history is absent.
+    expect(workingCap.cashConversionCycleDays).toBeNull();
+    expect(workingCap.daysInventoryOutstanding).toBeNull();
+    expect(workingCap.daysSalesOutstanding).toBeNull();
+    expect(workingCap.daysPayablesOutstanding).toBeNull();
     expect(Number.isFinite(workingCap.workingCapitalGap)).toBe(true);
   });
 

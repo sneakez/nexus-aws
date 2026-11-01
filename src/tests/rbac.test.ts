@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { hasPermission, getAllowedPagesForRole, type Permission } from '@/lib/permissions';
 import type { TenantRole } from '@/types';
 
-describe('Unified RBAC Permission Registry — Dream Terus (Terus Tech)', () => {
+describe('Unified RBAC Permission Registry — NexusOMS MVP', () => {
   it('owner (R1) has all critical governance and approval permissions', () => {
     const criticalPerms: Permission[] = [
       'orders:create', 'orders:cancel', 'orders:delete',
@@ -88,28 +88,24 @@ describe('Unified RBAC Permission Registry — Dream Terus (Terus Tech)', () => 
     expect(hasPermission(undefined, 'orders:view')).toBe(false);
   });
 
-  it('whitelists all 7 area pages appropriately per role', () => {
+  it('exposes only the three MVP roles and their scoped pages', () => {
     const warehousePages = getAllowedPagesForRole('warehouse');
-    expect(warehousePages).toContain('inventory');
-    expect(warehousePages).toContain('fulfillment');
-    expect(warehousePages).toContain('warehouses');
-    expect(warehousePages).not.toContain('ledger');
-    expect(warehousePages).not.toContain('feeReconciliation');
-    expect(warehousePages).not.toContain('orderEconomics');
-    expect(warehousePages).not.toContain('settings');
+    expect(warehousePages).toEqual(['dashboard', 'inventory', 'orders', 'fulfillment', 'returns']);
 
-    // Finance is optional and disabled in the prototype's default configuration.
+    const managerPages = getAllowedPagesForRole('manager');
+    for (const page of ['dashboard', 'inventory', 'orders', 'fulfillment', 'returns', 'customers', 'orderEconomics', 'skuEconomics', 'channelEconomics', 'cashWorkingCapital', 'pricingCalculator', 'simulator']) {
+      expect(managerPages).toContain(page);
+    }
+    expect(managerPages).not.toContain('channelConnections');
+    expect(managerPages).not.toContain('channelMapping');
+
+    for (const legacyRole of ['admin', 'finance', 'growth', 'viewer'] as const) {
+      expect(getAllowedPagesForRole(legacyRole)).toEqual([]);
+    }
+
     expect(getAllowedPagesForRole('finance')).toEqual([]);
-
-    const growthPages = getAllowedPagesForRole('growth');
-    expect(growthPages).toContain('marketingAnalytics');
-    expect(growthPages).toContain('customerAnalytics'); // Restore original module access; readiness must not hide modules.
-    expect(growthPages).toContain('skuEconomics');
-    expect(growthPages).toContain('channelEconomics');
-    expect(growthPages).not.toContain('settings');
-    expect(growthPages).not.toContain('warehouses');
     const ownerPages = getAllowedPagesForRole('owner');
-    for (const page of ['dashboard', 'operationsAnalytics', 'transfers', 'batches', 'ledger', 'cashWorkingCapital', 'founderExecution', 'webhooks', 'simulator']) {
+    for (const page of ['dashboard', 'inventory', 'orders', 'fulfillment', 'returns', 'customers', 'orderEconomics', 'skuEconomics', 'channelEconomics', 'cashWorkingCapital', 'pricingCalculator', 'channelConnections', 'channelMapping', 'simulator']) {
       expect(ownerPages).toContain(page);
     }
   });

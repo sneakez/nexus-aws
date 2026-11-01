@@ -125,7 +125,8 @@ export function calculateOrderContribution(params: {
  * Calculates Break-even price, Recommended price, and Max allowable discount
  */
 export function simulatePricing(input: PricingSimulationInput): PricingSimulationResult {
-  const feeRate = (input.marketplaceFeePercent + input.paymentFeePercent) / 100;
+  const taxRate = input.taxIncludedInFees ? 0 : (input.configuredTaxPercent || 0);
+  const feeRate = (input.marketplaceFeePercent + input.paymentFeePercent + taxRate) / 100;
   const targetMarginRate = input.targetCm2Percent / 100;
   const adsRate = input.allocatedMarketingPercent / 100;
 
@@ -135,20 +136,20 @@ export function simulatePricing(input: PricingSimulationInput): PricingSimulatio
   const denominatorCm2 = 1 - feeRate;
   const breakEvenPrice = denominatorCm2 > 0
     ? Math.round((input.cogs + input.packagingFulfillmentCost) / denominatorCm2)
-    : input.cogs * 2;
+    : 0;
 
   // Break-even price with Marketing (CM3 = 0)
   const denominatorCm3 = 1 - feeRate - adsRate;
   const breakEvenWithAds = denominatorCm3 > 0
     ? Math.round((input.cogs + input.packagingFulfillmentCost) / denominatorCm3)
-    : breakEvenPrice * 1.3;
+    : 0;
 
   // Recommended Price to achieve Target CM2%
   // Price * (1 - feeRate - targetMarginRate) = COGS + Fulfillment
   const denominatorTarget = 1 - feeRate - targetMarginRate;
   const recommendedPrice = denominatorTarget > 0
     ? Math.round((input.cogs + input.packagingFulfillmentCost) / denominatorTarget)
-    : Math.round(breakEvenPrice * 1.5);
+    : 0;
 
   // Maximum allowed discount on current base price before CM2 turns negative:
   // BasePrice - MaxDiscount = BreakEvenPrice
@@ -158,12 +159,13 @@ export function simulatePricing(input: PricingSimulationInput): PricingSimulatio
   const actualEffectivePrice = Math.max(0, input.basePrice - input.voucherDiscountAmount);
   const platformFees = Math.round(actualEffectivePrice * (input.marketplaceFeePercent / 100));
   const paymentFees = Math.round(actualEffectivePrice * (input.paymentFeePercent / 100));
+  const configuredTax = Math.round(actualEffectivePrice * taxRate / 100);
   const adsCost = Math.round(actualEffectivePrice * adsRate);
 
   const simulatedCm1 = actualEffectivePrice - input.cogs;
   const simulatedCm1Margin = safeDivide(simulatedCm1, actualEffectivePrice) * 100;
 
-  const simulatedCm2 = simulatedCm1 - (platformFees + paymentFees + input.packagingFulfillmentCost);
+  const simulatedCm2 = simulatedCm1 - (platformFees + paymentFees + configuredTax + input.packagingFulfillmentCost);
   const simulatedCm2Margin = safeDivide(simulatedCm2, actualEffectivePrice) * 100;
 
   const simulatedCm3 = simulatedCm2 - adsCost;
@@ -175,7 +177,7 @@ export function simulatePricing(input: PricingSimulationInput): PricingSimulatio
     { name: '3. Doanh thu thuần (Net)', amount: actualEffectivePrice, percentageOfRevenue: 100, type: 'subtotal' },
     { name: '4. Giá vốn hàng bán (COGS)', amount: -input.cogs, percentageOfRevenue: safeDivide(-input.cogs, actualEffectivePrice) * 100, type: 'negative' },
     { name: '5. Lãi gộp CM1', amount: simulatedCm1, percentageOfRevenue: simulatedCm1Margin, type: 'subtotal' },
-    { name: '6. Phí sàn & Thanh toán', amount: -(platformFees + paymentFees), percentageOfRevenue: safeDivide(-(platformFees + paymentFees), actualEffectivePrice) * 100, type: 'negative' },
+    { name: '6. Phí sàn / thanh toán / thuế tự cấu hình', amount: -(platformFees + paymentFees + configuredTax), percentageOfRevenue: safeDivide(-(platformFees + paymentFees + configuredTax), actualEffectivePrice) * 100, type: 'negative' },
     { name: '7. Đóng gói & Vận hành', amount: -input.packagingFulfillmentCost, percentageOfRevenue: safeDivide(-input.packagingFulfillmentCost, actualEffectivePrice) * 100, type: 'negative' },
     { name: '8. Lợi nhuận đóng góp CM2', amount: simulatedCm2, percentageOfRevenue: simulatedCm2Margin, type: 'subtotal' },
     { name: '9. Phân bổ Chi phí Ads', amount: -adsCost, percentageOfRevenue: safeDivide(-adsCost, actualEffectivePrice) * 100, type: 'negative' },
@@ -183,6 +185,8 @@ export function simulatePricing(input: PricingSimulationInput): PricingSimulatio
   ];
 
   return {
+    valid: denominatorCm2 > 0 && denominatorCm3 > 0 && denominatorTarget > 0,
+    invalidReason: denominatorCm2 <= 0 || denominatorCm3 <= 0 || denominatorTarget <= 0 ? 'Tỷ lệ phí/Ads/biên mục tiêu không khả thi; không có giá đề xuất hợp lệ.' : undefined,
     breakEvenPrice,
     breakEvenWithAds,
     recommendedPrice,

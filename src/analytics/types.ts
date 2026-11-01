@@ -101,6 +101,8 @@ export interface ChannelUnitEconomics {
 
 // ============ Pricing Simulator Inputs & Outputs ============
 export interface PricingSimulationInput {
+  configuredTaxPercent?: number;
+  taxIncludedInFees?: boolean;
   basePrice: number;
   cogs: number;
   marketplaceFeePercent: number;
@@ -112,6 +114,8 @@ export interface PricingSimulationInput {
 }
 
 export interface PricingSimulationResult {
+  valid?: boolean;
+  invalidReason?: string;
   breakEvenPrice: number;       // Price where CM2 = 0
   breakEvenWithAds: number;     // Price where CM3 = 0
   recommendedPrice: number;     // Price to achieve target CM2%
@@ -137,6 +141,8 @@ export interface MarketingCampaignPerformance {
   channel: Channel;
   platform: 'Facebook/Meta' | 'TikTok Ads' | 'Shopee In-App' | 'Lazada Ads' | 'Unknown' | 'KOC Booking' | 'Google Ads';
   adSpend: number;
+  adsCredit?: number;
+  netSpend?: number;
   impressions: number;
   clicks: number;
   cpc: number;
@@ -146,7 +152,7 @@ export interface MarketingCampaignPerformance {
   roas: number;                 // attributedRevenue / adSpend
   cogs: number;
   cmAfterAds: number;           // Attributed Revenue - COGS - Fees - Ad Spend
-  status: 'PROFITABLE' | 'OPTIMIZING' | 'LOSS_MAKING';
+  status: 'PROFITABLE' | 'OPTIMIZING' | 'LOSS_MAKING' | 'INSUFFICIENT_DATA';
   attributionType: DataAttributionType;
 }
 
@@ -177,7 +183,7 @@ export interface OperationsPerformanceMetrics {
   avgCycleTimeHours: number;    // Place order to carrier pickup
   avgPickingTimeMinutes: number;
   avgPackingTimeMinutes: number;
-  slaComplianceRate: number;    // % shipped within SLA window
+  slaComplianceRate: number | null;    // % shipped within SLA window
   firstAttemptDeliveryRate: number;
   failedDeliveryRate: number;
   returnRate: number;
@@ -186,7 +192,7 @@ export interface OperationsPerformanceMetrics {
     warehouseId: string;
     warehouseName: string;
     ordersProcessed: number;
-    slaComplianceRate: number;
+    slaComplianceRate: number | null;
     avgCycleTimeHours: number;
     errorRate: number;
   }>;
@@ -199,10 +205,10 @@ export interface WorkingCapitalOverview {
   pendingMarketplaceSettlements: number; // Receivables awaiting payout
   supplierPayables: number;     // Accounts payable to suppliers
   workingCapitalGap: number;    // (Receivables + Inventory) - Payables
-  daysInventoryOutstanding: number; // DIO
-  daysSalesOutstanding: number;     // DSO (avg days to receive marketplace payouts)
-  daysPayablesOutstanding: number;  // DPO (avg days given by suppliers)
-  cashConversionCycleDays: number;  // CCC = DIO + DSO - DPO
+  daysInventoryOutstanding: number | null; // Missing observation => unavailable
+  daysSalesOutstanding: number | null;
+  daysPayablesOutstanding: number | null;
+  cashConversionCycleDays: number | null;
   settlementBatches: Array<{
     channel: Channel;
     cycleDate: string;
@@ -254,7 +260,7 @@ export interface ExecutiveDashboardData {
     cm2: { value: number; margin: number; previous: number; delta: number; deltaPercent: number };
     cm3: { value: number; margin: number; previous: number; delta: number; deltaPercent: number };
     inventoryValue: { value: number; previous: number; delta: number; deltaPercent: number };
-    cashConversionCycleDays: { value: number; previous: number; delta: number };
+    cashConversionCycleDays: { value: number | null; previous: number | null; delta: number | null };
     returnRate: { value: number; previous: number; delta: number };
     outstandingSettlements: { value: number; previous: number; delta: number };
   };

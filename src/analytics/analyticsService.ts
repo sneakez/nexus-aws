@@ -1,3 +1,4 @@
+import { operationalInsights, slaSummary } from './operations';
 import { commerceOrderMetrics } from '@/mock/commerceMetrics';
 import { mockStore } from '@/mock/store';
 import {
@@ -53,14 +54,14 @@ class AnalyticsService {
       prevStart = new Date(todayStart.getTime() - 2 * 24 * 3600 * 1000);
       prevEnd = new Date(todayEnd.getTime() - 2 * 24 * 3600 * 1000);
     } else if (period === 'last_7_days') {
-      currentStart = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+      currentStart = new Date(todayStart.getTime() - 6 * 24 * 3600 * 1000);
       currentEnd = todayEnd;
-      prevStart = new Date(now.getTime() - 14 * 24 * 3600 * 1000);
+      prevStart = new Date(todayStart.getTime() - 13 * 24 * 3600 * 1000);
       prevEnd = new Date(currentStart.getTime() - 1);
     } else if (period === 'last_30_days') {
-      currentStart = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+      currentStart = new Date(todayStart.getTime() - 29 * 24 * 3600 * 1000);
       currentEnd = todayEnd;
-      prevStart = new Date(now.getTime() - 60 * 24 * 3600 * 1000);
+      prevStart = new Date(todayStart.getTime() - 59 * 24 * 3600 * 1000);
       prevEnd = new Date(currentStart.getTime() - 1);
     } else if (period === 'this_month') {
       currentStart = vnDate(year, month, 1);
@@ -73,19 +74,19 @@ class AnalyticsService {
       prevStart = vnDate(year, month - 2, 1);
       prevEnd = vnDate(year, month - 1, 0, true);
     } else {
-      currentStart = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+      currentStart = new Date(todayStart.getTime() - 29 * 24 * 3600 * 1000);
       currentEnd = todayEnd;
-      prevStart = new Date(now.getTime() - 60 * 24 * 3600 * 1000);
+      prevStart = new Date(todayStart.getTime() - 59 * 24 * 3600 * 1000);
       prevEnd = new Date(currentStart.getTime() - 1);
     }
 
     const current = orders.filter(o => {
-      const d = parseDate(o.created_at || o.placed_at);
+      const d = parseDate(o.placed_at || o.created_at);
       return d >= currentStart && d <= currentEnd;
     });
 
     const previous = orders.filter(o => {
-      const d = parseDate(o.created_at || o.placed_at);
+      const d = parseDate(o.placed_at || o.created_at);
       return d >= prevStart && d <= prevEnd;
     });
 
@@ -96,9 +97,10 @@ class AnalyticsService {
   /**
    * Get Order Economics for all or filtered orders
    */
-  public getOrderEconomics(tenantId?: string): OrderUnitEconomics[] {
+  public getOrderEconomics(tenantId?: string, period?: TimeDimension): OrderUnitEconomics[] {
     const state = mockStore.getSnapshot();
-    return mockStore.getOrders(tenantId).map(order => {
+    const scoped=mockStore.getOrders(tenantId);
+    return (period ? this.filterOrdersByPeriod(scoped,period).current : scoped).map(order => {
       const m = commerceOrderMetrics(state, order);
       const cm1 = m.sales - m.cogs, cm2 = cm1 - m.fees - m.packaging + m.compensation;
       const margin = (n: number) => m.sales ? n / m.sales * 100 : 0;
@@ -116,9 +118,10 @@ class AnalyticsService {
   /**
    * Get SKU Unit Economics with Break-even, ROI, and ABC/XYZ ranking
    */
-  public getSkuEconomics(tenantId?: string): SkuUnitEconomics[] {
+  public getSkuEconomics(tenantId?: string, period?: TimeDimension): SkuUnitEconomics[] {
     const products = mockStore.getProducts();
-    const orders = mockStore.getOrders(tenantId);
+    const scopedOrders = mockStore.getOrders(tenantId);
+    const orders = period ? this.filterOrdersByPeriod(scopedOrders, period).current : scopedOrders;
     const inv5 = mockStore.getInventory5State();
 
     // Allocate order economics across products by line value; sums match order P&L.
@@ -158,10 +161,10 @@ class AnalyticsService {
 
       // Days of inventory
       const thirtyDayCogs = sales.totalCogs || (sales.unitsSold * cogs);
-      const daysOfInventory = thirtyDayCogs > 0 ? Math.round(safeDivide(stockValue * 30, thirtyDayCogs)) : 90;
+      const daysOfInventory = thirtyDayCogs > 0 ? Math.round(safeDivide(stockValue * 30, thirtyDayCogs)) : 0;
 
       // Break-even price
-      const denominator = 1 - 0.095 - 0.02; // fee + payment
+      const denominator = 1 - (asp > 0 ? avgFees / asp : 0); // observed fees, no regional fee/tax assumption
       const breakEvenPrice = denominator > 0 ? Math.round((cogs + avgFulfillment) / denominator) : cogs * 2;
       const suggestedPrice = Math.round(breakEvenPrice * 1.35); // Target 35% margin
       const maxDiscountAmount = Math.max(0, asp - breakEvenPrice);
@@ -219,8 +222,9 @@ class AnalyticsService {
   /**
    * Channel Economics across Shopee, TikTok Shop, Lazada, Website D2C
    */
-  public getChannelEconomics(tenantId?: string): ChannelUnitEconomics[] {
-    const orders = mockStore.getOrders(tenantId);
+  public getChannelEconomics(tenantId?: string, period?: TimeDimension): ChannelUnitEconomics[] {
+    const scopedOrders = mockStore.getOrders(tenantId);
+    const orders = period ? this.filterOrdersByPeriod(scopedOrders, period).current : scopedOrders;
     const orderEconomics = this.getOrderEconomics(tenantId);
 
     const channels: Array<{ id: Channel; name: string }> = [
@@ -231,7 +235,7 @@ class AnalyticsService {
     ];
 
     return channels.map(ch => {
-      const chOrders = orderEconomics.filter(o => o.channel === ch.id);
+      const chOrders = orderEconomics.filter(o => o.channel === ch.id && orders.some(order => order.id === o.orderId));
       const count = chOrders.length;
       const grossSales = chOrders.reduce((sum, o) => sum + o.grossSales, 0);
       const netRevenue = chOrders.reduce((sum, o) => sum + o.netRevenue, 0);
@@ -304,25 +308,25 @@ class AnalyticsService {
     const pendingPodRevenue = Math.max(0, netRevenueCurr - recognizedRevPod);
 
     const orderVolCurr = current.length;
-    const orderVolPrev = previous.length || Math.round(orderVolCurr * 0.85);
+    const orderVolPrev = previous.length;
 
     const aovCurr = orderVolCurr > 0 ? Math.round(netRevenueCurr / orderVolCurr) : 0;
     const aovPrev = orderVolPrev > 0 ? Math.round(netRevenuePrev / orderVolPrev) : 0;
 
     const cm1Curr = orderEconCurrent.reduce((sum, o) => sum + o.cm1, 0);
-    const cm1Prev = orderEconPrev.reduce((sum, o) => sum + o.cm1, 0) || Math.round(cm1Curr * 0.88);
+    const cm1Prev = orderEconPrev.reduce((sum, o) => sum + o.cm1, 0);
 
     const cm2Curr = orderEconCurrent.reduce((sum, o) => sum + o.cm2, 0);
-    const cm2Prev = orderEconPrev.reduce((sum, o) => sum + o.cm2, 0) || Math.round(cm2Curr * 0.86);
+    const cm2Prev = orderEconPrev.reduce((sum, o) => sum + o.cm2, 0);
 
     const cm3Curr = orderEconCurrent.reduce((sum, o) => sum + o.cm3, 0);
-    const cm3Prev = orderEconPrev.reduce((sum, o) => sum + o.cm3, 0) || Math.round(cm3Curr * 0.82);
+    const cm3Prev = orderEconPrev.reduce((sum, o) => sum + o.cm3, 0);
 
     const inv5 = mockStore.getInventory5State();
     const products = mockStore.getProducts();
     const inventoryValue = inv5.reduce((sum, i) => {
       const prod = products.find(p => p.id === i.product_id || p.sku === i.sku);
-      return sum + i.physical * (prod?.moving_avg_cost || prod?.cost || 100000);
+      return sum + i.physical * (prod?.moving_avg_cost ?? prod?.cost_price ?? prod?.cost ?? 0);
     }, 0);
 
     const revDelta = calculatePercentDelta(netRevenueCurr, netRevenuePrev);
@@ -346,8 +350,8 @@ class AnalyticsService {
 
     const waterfallPnL = [
       { name: '1. Tổng giá niêm yết (Gross)', amount: grossSalesTotal, type: 'positive' as const, percentageOfRevenue: 100 },
-      { name: '2. Voucher & Khuyến mãi', amount: -discountsTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-discountsTotal, netRevenueCurr) * 100 },
-      { name: '3. Hoàn tiền đơn hủy (Refunds)', amount: -returnsTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-returnsTotal, netRevenueCurr) * 100 },
+      { name: '2. Voucher đã trừ trong tổng đơn · không trừ lần hai', amount: 0, type: 'negative' as const, percentageOfRevenue: 0 },
+      { name: '3. Chưa ghi nhận / hủy / refund', amount: -(grossSalesTotal - netRevenueCurr), type: 'negative' as const, percentageOfRevenue: safeDivide(-(grossSalesTotal - netRevenueCurr), netRevenueCurr) * 100 },
       { name: '4. Doanh thu thuần (Net Revenue)', amount: netRevenueCurr, type: 'subtotal' as const, percentageOfRevenue: 100 },
       { name: '5. Giá vốn hàng bán (COGS)', amount: -cogsTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-cogsTotal, netRevenueCurr) * 100 },
       { name: '6. Lãi gộp CM1', amount: cm1Curr, type: 'subtotal' as const, percentageOfRevenue: safeDivide(cm1Curr, netRevenueCurr) * 100 },
@@ -355,7 +359,7 @@ class AnalyticsService {
       { name: '8. Phí cổng thanh toán', amount: -paymentFeesTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-paymentFeesTotal, netRevenueCurr) * 100 },
       { name: '9. Chi phí nhặt & đóng gói (WMS)', amount: -fulfillmentTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-fulfillmentTotal, netRevenueCurr) * 100 },
       { name: '10. Trợ giá vận chuyển (FreeShip)', amount: -shippingSubsidiesTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-shippingSubsidiesTotal, netRevenueCurr) * 100 },
-      { name: '11. Chi phí xử lý hoàn hàng (RMA)', amount: -returnCostsTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-returnCostsTotal, netRevenueCurr) * 100 },
+      { name: '11. Bồi thường riêng · không phải doanh thu bán', amount: orderEconCurrent.reduce((s,o)=>s+(o.compensation||0),0), type: 'positive' as const, percentageOfRevenue: safeDivide(orderEconCurrent.reduce((s,o)=>s+(o.compensation||0),0),netRevenueCurr)*100 },
       { name: '12. Lợi nhuận đóng góp CM2', amount: cm2Curr, type: 'subtotal' as const, percentageOfRevenue: safeDivide(cm2Curr, netRevenueCurr) * 100 },
       { name: '13. Chi phí Marketing & Ads', amount: -marketingTotal, type: 'negative' as const, percentageOfRevenue: safeDivide(-marketingTotal, netRevenueCurr) * 100 },
       { name: '14. Lợi nhuận sau Ads CM3', amount: cm3Curr, type: 'subtotal' as const, percentageOfRevenue: safeDivide(cm3Curr, netRevenueCurr) * 100 }
@@ -363,15 +367,15 @@ class AnalyticsService {
 
     // Revenue Trend by Day (Last 7 days or periods)
     const trendMap = new Map<string, { gross: number; net: number; cogs: number; cm2: number; cm3: number }>();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().split('T')[0];
-      trendMap.set(key, { gross: 0, net: 0, cogs: 0, cm2: 0, cm3: 0 });
-    }
+    const vnNow=new Date(Date.now()+7*3600000), endDay=new Date(Date.UTC(vnNow.getUTCFullYear(),vnNow.getUTCMonth(),vnNow.getUTCDate()));
+    let days=period==='today'||period==='yesterday'?1:period==='last_7_days'?7:30;
+    if(period==='yesterday')endDay.setUTCDate(endDay.getUTCDate()-1);
+    if(period==='this_month')days=vnNow.getUTCDate();
+    if(period==='last_month'){endDay.setUTCDate(0);days=endDay.getUTCDate();}
+    for(let i=days-1;i>=0;i--){const key=new Date(endDay.getTime()-i*86400000).toISOString().slice(0,10);trendMap.set(key,{gross:0,net:0,cogs:0,cm2:0,cm3:0});}
 
     orderEconCurrent.forEach(e => {
-      const dStr = (e.placedAt || '').split('T')[0];
+      const dStr = new Date(Date.parse(e.placedAt) + 7*3600000).toISOString().slice(0,10);
       if (trendMap.has(dStr)) {
         const cur = trendMap.get(dStr)!;
         cur.gross += e.grossSales;
@@ -387,66 +391,27 @@ class AnalyticsService {
       return {
         date,
         label: dayLabel,
-        grossRevenue: val.gross || Math.round(netRevenueCurr / 7 * 1.1),
-        netRevenue: val.net || Math.round(netRevenueCurr / 7),
-        cogs: val.cogs || Math.round(cogsTotal / 7),
-        cm2: val.cm2 || Math.round(cm2Curr / 7),
-        cm3: val.cm3 || Math.round(cm3Curr / 7)
+        grossRevenue: val.gross,
+        netRevenue: val.net,
+        cogs: val.cogs,
+        cm2: val.cm2,
+        cm3: val.cm3
       };
     });
 
-    // Decision Insights (4-layer intelligence)
-    const tiktokEcon = this.getChannelEconomics(mockStore.getActiveTenant().id).find(c => c.channel === 'tiktok');
-    const ttNet = tiktokEcon?.netRevenue || 2710000;
-    const ttCm3 = tiktokEcon?.cm3 || 320000;
-
+    const observed = operationalInsights(mockStore.getSnapshot(), current, inv5);
     const decisionInsights: DecisionInsight[] = [
-      {
-        id: 'ins_01',
-        category: 'channel_performance',
-        severity: 'WARNING',
-        title: 'Kênh TikTok Shop doanh thu tăng nhưng biên CM3 sau Ads còn mỏng',
-        descriptive: `Trong kỳ qua, TikTok Shop ghi nhận doanh thu ${ttNet.toLocaleString()} ₫ (${tiktokEcon?.orderCount || 2} đơn hàng) tạo ra ${ttCm3.toLocaleString()} ₫ lợi nhuận CM3.`,
-        diagnostic: 'Do chi phí Booking KOC và Flash Sale Voucher đẩy chi phí Marketing lên cao cộng với tỷ lệ hoàn hàng sàn.',
-        predictive: 'Nếu tiếp tục đẩy Ads livestream không kiểm soát ROAS, biên CM3 của TikTok Shop sẽ rơi vào mức âm trong đợt sale tới.',
-        prescriptive: 'Giảm 25% ngân sách Ads mở rộng tệp mới; chỉ tập trung ngân sách retargeting vào SKU có CM2 > 40%; chặn voucher cộng dồn.',
-        calculationFormula: `CM3 = CM2 (${(tiktokEcon?.cm2 || 0).toLocaleString()} ₫) - Marketing Costs (${(tiktokEcon?.marketingSpend || 0).toLocaleString()} ₫) = ${ttCm3.toLocaleString()} ₫`,
-        financialImpactEstimate: 850000,
-        dataAttribution: 'ESTIMATED',
-        attributionNote: 'Đơn hàng mô phỏng từ TikTok Shop; chi phí Marketing ước tính phân bổ theo kỳ',
-        relatedEntityLink: { page: 'channelEconomics', label: 'Xem Chi Tiết Kênh' }
-      },
-      {
-        id: 'ins_02',
-        category: 'inventory_risk',
-        severity: 'CRITICAL',
-        title: 'SKU Bán chạy NX-AIR-PRO đối mặt nguy cơ đứt hàng trong 5 ngày',
-        descriptive: 'Tồn kho khả dụng (Sellable) của NX-AIR-PRO còn 128 cái, vận tốc bán bình quân 8.5 cái/ngày.',
-        diagnostic: 'Thời gian đặt hàng và giao hàng từ nhà cung cấp (Lead time) là 15 ngày, trong khi PO-2026-004 vẫn chưa phê duyệt.',
-        predictive: 'Kho sẽ đứt hàng vào ngày thứ 15 nếu không kích hoạt PO bổ sung kịp thời.',
-        prescriptive: 'Bấm phê duyệt khẩn cấp đơn mua hàng PO ngay hôm nay; tạm thời giảm ngân sách Ads Flash Sale.',
-        calculationFormula: 'Runway = Sellable (128) / Velocity (8.5/ngày) = 15.0 ngày ~ Lead Time',
-        financialImpactEstimate: 4200000,
-        dataAttribution: 'DEMO-OBSERVED',
-        attributionNote: 'Dữ liệu quan sát trong kịch bản demo kiểm kê Kho Tổng Miền Bắc',
-        relatedEntityLink: { page: 'inventoryAnalytics', label: 'Xem Tồn Kho' }
-      },
-      {
-        id: 'ins_03',
-        category: 'unit_economics',
-        severity: 'OPPORTUNITY',
-        title: 'SKU Cáp Sạc NX-CABLE-100W có biên lãi gộp CM1 vượt trội (63.3%)',
-        descriptive: 'Cáp sạc Type-C 100W đạt CM1 63.3% và CM2 45.2%, tốc độ bán tốt nhưng có thể gia tăng giá trị đơn hàng.',
-        diagnostic: 'Hiện chưa có chiến dịch Ads hay chương trình Mua kèm giảm giá (Bundle) nào liên kết sản phẩm này với dòng Tai nghe.',
-        predictive: 'Nếu thiết lập Bundle bán kèm giảm 15% cho khách mua NX-AIR-PRO, có thể tăng AOV thêm 120.000 ₫ mỗi đơn.',
-        prescriptive: 'Tạo combo tự động trên OMS kết nối Shopee/TikTok: Giảm 20k khi mua kèm Tai nghe, tăng lợi nhuận thêm 1.8M/tháng.',
-        calculationFormula: 'CM2 Bundle = ASP (130.000 ₫) - COGS (55.000 ₫) - Fees (22.000 ₫) = 53.000 ₫ (40.8%)',
-        financialImpactEstimate: 1800000,
-        dataAttribution: 'SIMULATED',
-        attributionNote: 'Mô phỏng kịch bản What-If tạo combo bán kèm trên các sàn thương mại điện tử',
-        relatedEntityLink: { page: 'skuEconomics', label: 'Xem SKU Economics' }
-      }
+      ...observed.concentration.map(c => ({ id: `channel-${c.channel}`, category: 'channel_performance' as const, severity: 'WARNING' as const,
+        title: `${c.channel}: ${c.percent?.toFixed(1)}% doanh thu net trong kỳ`, descriptive: `${c.net} / ${observed.totalNetSales} VND; ngưỡng cấu hình ${observed.config.concentration_percent}%`,
+        diagnostic: 'Tỷ trọng net của đơn trong kỳ/scope, không phải doanh thu attribution Ads.', predictive: 'Không dự đoán tăng trưởng từ một kỳ quan sát.', prescriptive: 'Mở báo cáo kênh để kiểm tra các đơn nguồn.', calculationFormula: 'Net kênh / tổng net cùng kỳ × 100', financialImpactEstimate: 0, dataAttribution: 'DEMO-OBSERVED' as const,
+        relatedEntityLink: { page: 'channelEconomics', label: 'Mở kênh và đơn nguồn' } })),
+      ...observed.products.filter(p => p.slow && p.available > 0).map(p => ({ id: `slow-${p.productId}`, category: 'inventory_risk' as const, severity: 'WARNING' as const,
+        title: `${p.sku}: chưa có đơn giao trong ${observed.config.slow_days} ngày`, descriptive: `Khả dụng ${p.available}; lịch sử quan sát ${p.historyDays} ngày; ${observed.definition}`,
+        diagnostic: 'Hàng có tồn nhưng chưa có bán trong cửa sổ đã cấu hình.', predictive: 'Chưa có mô hình dự báo; không suy diễn số tiền thu hồi.', prescriptive: 'Kiểm tra SKU/đơn trước khi đề xuất.', calculationFormula: 'Đơn giao gần nhất + tồn thực trong scope', financialImpactEstimate: 0, dataAttribution: 'DEMO-OBSERVED' as const,
+        relatedEntityLink: { page: 'skuEconomics', label: `Mở phân tích SKU ${p.sku}` } }))
     ];
+    const cash = mockStore.getFinanceOverview();
+    const returnRate = current.length ? current.filter(o => o.return_status && o.return_status !== 'none').length / current.length * 100 : 0;
 
     return {
       timePeriod: period,
@@ -467,15 +432,15 @@ class AnalyticsService {
         cm1: { value: cm1Curr, margin: safeDivide(cm1Curr, netRevenueCurr) * 100, previous: cm1Prev, delta: cm1Delta.delta, deltaPercent: cm1Delta.deltaPercent },
         cm2: { value: cm2Curr, margin: safeDivide(cm2Curr, netRevenueCurr) * 100, previous: cm2Prev, delta: cm2Delta.delta, deltaPercent: cm2Delta.deltaPercent },
         cm3: { value: cm3Curr, margin: safeDivide(cm3Curr, netRevenueCurr) * 100, previous: cm3Prev, delta: cm3Delta.delta, deltaPercent: cm3Delta.deltaPercent },
-        inventoryValue: { value: inventoryValue, previous: Math.round(inventoryValue * 1.05), delta: -Math.round(inventoryValue * 0.05), deltaPercent: -4.8 },
-        cashConversionCycleDays: { value: 34, previous: 38, delta: -4 },
-        returnRate: { value: 3.8, previous: 4.2, delta: -0.4 },
-        outstandingSettlements: { value: 6850000, previous: 5200000, delta: 1650000 }
+        inventoryValue: { value: inventoryValue, previous: inventoryValue, delta: 0, deltaPercent: 0 },
+        cashConversionCycleDays: { value: null, previous: null, delta: null },
+        returnRate: { value: returnRate, previous: 0, delta: 0 },
+        outstandingSettlements: { value: cash.pendingMarketplaceSettlements, previous: cash.pendingMarketplaceSettlements, delta: 0 }
       },
       revenueTrend,
       waterfallPnL,
-      channelComparison: this.getChannelEconomics(mockStore.getActiveTenant().id),
-      skuPareto: this.getSkuEconomics(mockStore.getActiveTenant().id),
+      channelComparison: this.getChannelEconomics(mockStore.getActiveTenant().id, period),
+      skuPareto: this.getSkuEconomics(mockStore.getActiveTenant().id, period),
       decisionInsights
     };
   }
@@ -483,9 +448,10 @@ class AnalyticsService {
   /**
    * Marketing Analytics Performance
    */
-  public getMarketingPerformance(): MarketingCampaignPerformance[] {
+  public getMarketingPerformance(period?: TimeDimension): MarketingCampaignPerformance[] {
     const state = mockStore.getSnapshot();
-    const orders = mockStore.getOrders();
+    const scoped = mockStore.getOrders();
+    const orders = period ? this.filterOrdersByPeriod(scoped, period).current : scoped;
     return [...new Set(orders.map(o => o.shop_id || o.channel))].map(shop => {
       const cohort = orders.filter(o => (o.shop_id || o.channel) === shop);
       const metrics = cohort.map(o => commerceOrderMetrics(state, o));
@@ -494,11 +460,12 @@ class AnalyticsService {
       const cmAfterAds = metrics.reduce((s, m) => s + m.contribution, 0);
       return { campaignId: shop, name: `Nhóm shop ${shop} · nguồn demo, chưa có attribution campaign`, channel: cohort[0].channel,
         platform: (cohort[0].channel === 'tiktok' ? 'TikTok Ads' : cohort[0].channel === 'shopee' ? 'Shopee In-App' : cohort[0].channel === 'lazada' ? 'Lazada Ads' : 'Unknown') as MarketingCampaignPerformance['platform'],
+        adsCredit: metrics.reduce((s,m) => s + m.adsCredit, 0), netSpend: metrics.reduce((s,m) => s + m.netAds, 0),
         adSpend, impressions: 0, clicks: 0, cpc: 0, conversions: cohort.filter(o => o.status === 'delivered').length,
         cpa: cohort.filter(o => o.status === 'delivered').length ? adSpend / cohort.filter(o => o.status === 'delivered').length : 0,
-        attributedRevenue, roas: adSpend ? attributedRevenue / adSpend : 0,
+        attributedRevenue, roas: metrics.reduce((s,m) => s + m.netAds, 0) > 0 ? attributedRevenue / metrics.reduce((s,m) => s + m.netAds, 0) : 0,
         cogs: metrics.reduce((s, m) => s + m.cogs, 0), cmAfterAds,
-        status: cmAfterAds >= 0 ? 'PROFITABLE' : 'LOSS_MAKING', attributionType: 'ESTIMATED' };
+        status: adSpend === 0 ? 'INSUFFICIENT_DATA' : cmAfterAds >= 0 ? 'PROFITABLE' : 'LOSS_MAKING', attributionType: 'ESTIMATED' };
     });
   }
 
@@ -607,33 +574,15 @@ class AnalyticsService {
    * Operations Analytics Performance
    */
   public getOperationsPerformance(): OperationsPerformanceMetrics {
-    return {
-      avgCycleTimeHours: 3.4,
-      avgPickingTimeMinutes: 14.5,
-      avgPackingTimeMinutes: 8.2,
-      slaComplianceRate: 98.2,
-      firstAttemptDeliveryRate: 94.6,
-      failedDeliveryRate: 3.2,
-      returnRate: 3.8,
-      damagedStockRate: 0.4,
-      warehousePerformance: [
-        {
-          warehouseId: 'wh_main_hcm',
-          warehouseName: 'Kho Tổng TP. Hồ Chí Minh',
-          ordersProcessed: 340,
-          slaComplianceRate: 98.8,
-          avgCycleTimeHours: 3.1,
-          errorRate: 0.2
-        },
-        {
-          warehouseId: 'wh_north_hanoi',
-          warehouseName: 'Kho Chi Nhánh Hà Nội',
-          ordersProcessed: 180,
-          slaComplianceRate: 97.4,
-          avgCycleTimeHours: 3.9,
-          errorRate: 0.5
-        }
-      ]
+    const orders = mockStore.getOrders(), summary=slaSummary(orders,mockStore.getOperationsConfig().sla_warning_hours);
+    const times=orders.filter(o=>o.shipped_at).map(o=>(Date.parse(o.shipped_at!)-Date.parse(o.placed_at))/3600000).filter(Number.isFinite);
+    const inv=mockStore.getInventory5State(), physical=inv.reduce((s,i)=>s+i.physical,0);
+    return { avgCycleTimeHours: times.length?times.reduce((s,n)=>s+n,0)/times.length:0, avgPickingTimeMinutes:0, avgPackingTimeMinutes:0,
+      slaComplianceRate: summary.compliance, firstAttemptDeliveryRate:0,
+      failedDeliveryRate:orders.length?100*orders.filter(o=>o.delivery_status==='delivery_failed').length/orders.length:0,
+      returnRate:orders.length?100*orders.filter(o=>o.return_status&&o.return_status!=='none').length/orders.length:0,
+      damagedStockRate:physical?100*inv.reduce((s,i)=>s+i.damaged,0)/physical:0,
+      warehousePerformance: mockStore.getWarehouses().map(w=>{const rows=orders.filter(o=>o.assigned_warehouse_id===w.id), sla=slaSummary(rows,mockStore.getOperationsConfig().sla_warning_hours);return{warehouseId:w.id,warehouseName:w.name,ordersProcessed:rows.filter(o=>o.shipped_at).length,slaComplianceRate:sla.compliance,avgCycleTimeHours:0,errorRate:0};})
     };
   }
 
@@ -646,29 +595,15 @@ class AnalyticsService {
 
     const inventoryCapital = inv5.reduce((sum, i) => {
       const prod = products.find(p => p.id === i.product_id || p.sku === i.sku);
-      return sum + i.physical * (prod?.moving_avg_cost || prod?.cost || 100000);
+      return sum + i.physical * (prod?.moving_avg_cost ?? prod?.cost_price ?? prod?.cost ?? 0);
     }, 0);
 
-    const availableCash = 24500000;
-    const pendingMarketplaceSettlements = 6850000;
-    const supplierPayables = 8200000;
-    const workingCapitalGap = (pendingMarketplaceSettlements + inventoryCapital) - supplierPayables;
-
-    return {
-      availableCash,
-      inventoryCapital,
-      pendingMarketplaceSettlements,
-      supplierPayables,
-      workingCapitalGap,
-      daysInventoryOutstanding: 42,
-      daysSalesOutstanding: 8,
-      daysPayablesOutstanding: 16,
-      cashConversionCycleDays: 34, // CCC = 42 + 8 - 16 = 34 days
-      settlementBatches: [
-        { channel: 'shopee', cycleDate: '2026-10-31', amount: 3250000, status: 'PENDING' },
-        { channel: 'tiktok', cycleDate: '2026-10-30', amount: 2100000, status: 'PENDING' },
-        { channel: 'lazada', cycleDate: '2026-10-28', amount: 1500000, status: 'PAID' }
-      ]
+    const finance = mockStore.getFinanceOverview();
+    const { availableCash, pendingMarketplaceSettlements, supplierPayables } = finance;
+    return { availableCash, inventoryCapital, pendingMarketplaceSettlements, supplierPayables,
+      workingCapitalGap: pendingMarketplaceSettlements + inventoryCapital - supplierPayables,
+      daysInventoryOutstanding: null, daysSalesOutstanding: null, daysPayablesOutstanding: null, cashConversionCycleDays: null,
+      settlementBatches: finance.settlements.map(b => ({ channel: b.channel as Channel, cycleDate: b.expected_date || '', amount: Math.max(0,b.remaining), status: (b.status === 'received' ? 'PAID' : 'PENDING') as 'PAID' | 'PENDING' }))
     };
   }
 }

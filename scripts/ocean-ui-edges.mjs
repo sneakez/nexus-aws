@@ -1,7 +1,7 @@
 import { launchUatBrowser } from './uat-browser.mjs';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
-const dir='artifacts/ocean-restore/edges'; await fs.mkdir(dir,{recursive:true});
+const dir=process.env.UAT_OUTPUT_DIR || 'artifacts/ocean-restore/edges'; await fs.mkdir(dir,{recursive:true});
 const browser=await launchUatBrowser(); const page=await browser.newPage(); await page.setViewport({width:1600,height:1000});
 const report={startedAt:new Date().toISOString(),steps:[],errors:[]}; page.on('pageerror',e=>report.errors.push(String(e)));page.on('dialog',d=>d.accept());
 const snap=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('nexus_mock_db_v2')));

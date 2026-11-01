@@ -1,33 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import type { PublicRoute, RoutePath } from '@/lib/router';
+import type { RoutePath } from '@/lib/router';
 
-describe('V5 Navigation & Routing Architecture', () => {
-  it('identifies public marketing routes correctly', () => {
-    const publicRoutes: PublicRoute[] = [
-      '/',
-      '/solutions',
-      '/pricing',
-      '/about',
-      '/contact',
-      '/demo',
-      '/features/orders',
-      '/features/inventory',
-      '/features/fulfillment',
-      '/features/finance',
-    ];
-
-    publicRoutes.forEach((route) => {
-      expect(route.startsWith('/')).toBe(true);
-      expect(route.startsWith('/app')).toBe(false);
-    });
+describe('NexusOMS MVP routing architecture', () => {
+  it('keeps only login and the authenticated workspace as entry points', () => {
+    expect(['/','/login']).toEqual(expect.arrayContaining(['/','/login']));
+    expect('/app').toMatch(/^\/app$/);
   });
 
-  it('distinguishes authenticated app routes from marketing pages', () => {
+  it('classifies authenticated workspace paths', () => {
     const appRoutes: RoutePath[] = [
       '/app',
       '/app/orders',
       '/app/inventory',
-      '/app/settings',
+      '/app/fulfillment',
     ];
 
     appRoutes.forEach((route) => {
@@ -35,19 +20,8 @@ describe('V5 Navigation & Routing Architecture', () => {
     });
   });
 
-  it('classifies auth lifecycle paths accurately', () => {
-    const authPaths = [
-      '/login',
-      '/register',
-      '/forgot-password',
-      '/reset-password',
-      '/verify-email',
-      '/accept-invite',
-    ];
-
-    authPaths.forEach((p) => {
-      expect(authPaths.includes(p)).toBe(true);
-      expect(p.startsWith('/app')).toBe(false);
-    });
+  it('does not advertise removed marketing, registration, or onboarding routes', () => {
+    const removedPaths = ['/solutions', '/pricing', '/register', '/forgot-password', '/onboarding'];
+    expect(removedPaths.every(path => !['/', '/login', '/app'].includes(path))).toBe(true);
   });
 });

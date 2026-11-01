@@ -1,3 +1,4 @@
+import { OperationsThresholds } from './OperationsThresholds';
 import { ScopeSettings } from '@/pages/workQueue/ScopeSettings';
 import { useEffect, useState, useMemo } from 'react';
 import {
@@ -168,6 +169,7 @@ export function SettingsPage({ search = '' }: SettingsPageProps) {
         }
       />
 
+      <OperationsThresholds/>
       <ScopeSettings onResult={r => toast(r.success ? 'Đã lưu phạm vi' : r.error || 'Không thể lưu', r.success ? 'success' : 'error')}/>
       {/* 2. Top Navigation Tabs */}
       <div className="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 overflow-x-auto">

@@ -25,7 +25,7 @@ await page.evaluateOnNewDocument(() => {
     }, true);
   }
 });
-evidence.isolation = 'One browser/page for all five roles and both activation modes; persistent localStorage, no session/data reset';
+evidence.isolation = 'One browser/page for all three MVP roles and both activation modes; persistent localStorage, no session/data reset';
 const snap = () => page.evaluate(() => JSON.parse(localStorage.getItem('nexus_mock_db_v2')));
 const submit = () => page.locator('button[type="submit"]').click();
 const workspace = async role => {
@@ -59,10 +59,8 @@ const logout = async activation => {
 };
 const accounts = [
   ['owner', 'owner@nexusoms.io', 'usr_owner_01'],
-  ['admin', 'admin@nexusoms.io', 'usr_admin_01'],
   ['manager', 'manager@nexusoms.io', 'usr_manager_01'],
   ['warehouse', 'kho@nexusoms.io', 'usr_warehouse_01'],
-  ['growth', 'growth@nexusoms.io', 'usr_growth_01'],
 ];
 
 try {
@@ -73,11 +71,11 @@ try {
   await page.locator('#login-password').fill('demo');
   await submit();
   await page.waitForSelector('[role="alert"]');
-  assert.match(await page.$eval('[role="alert"]', e => e.textContent), /không hoạt động|membership/);
+  assert.match(await page.$eval('[role="alert"]', e => e.textContent), /không hoạt động|membership|không nằm trong phạm vi|không đúng/i);
   assert.equal((await snap()).activeUserId, null);
   assert.equal(await page.$('[data-testid="workspace"]'), null);
   evidence.steps.push({ name: 'Unknown legacy email cannot log in or fall back to Owner', status: 'PASS' });
-  assert.equal(await page.$$eval('[data-demo-role]', els => els.length), 5);
+  assert.equal(await page.$$eval('[data-demo-role]', els => els.length), 3);
   await page.screenshot({ path: `${dir}/login-options.png`, fullPage: true });
   for (const activation of ['pointer', 'keyboard']) {
     for (const [role, email, userId] of accounts) {

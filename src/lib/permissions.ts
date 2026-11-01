@@ -114,79 +114,36 @@ function getRolePages(role: TenantRole | null | undefined): string[] {
   switch (role) {
     case 'owner':
       return [
-        // 01 Command Center
-        'dashboard', 'operationsAnalytics',
-        // 02 Commerce Operations
+        'dashboard', 'inventory',
         'orders', 'fulfillment', 'returns', 'customers',
-        // 03 Product Intelligence
-        'products', 'inventory', 'purchaseOrders', 'transfers', 'stockLedger', 'batches', 'warehouses',
-        // 04 Finance Control Tower
         'orderEconomics', 'skuEconomics', 'channelEconomics', 'cashWorkingCapital', 'pricingCalculator',
-        'ledger', 'feeReconciliation', 'marginControl', 'salesVelocity', 'revenueReport',
-        // 05 Growth Engine
-        'marketingAnalytics', 'customerAnalytics', 'salesAnalytics', 'inventoryAnalytics',
-        // 06 Execution OS
-        'founderExecution',
-        // 07 System & Trust / Demo Lab
-        'channelConnections', 'settings', 'auditTrail', 'ownerValidation', 'businessRules', 'simulator',
-        'bufferRules', 'routingRules', 'channelMapping', 'syncMonitor', 'complaints', 'automationRules',
-        'webhooks', 'flowGuide',
+        'channelConnections', 'channelMapping', 'simulator',
       ];
-
-    case 'admin':
-      return ['dashboard', 'orders', 'channelConnections', 'settings', 'auditTrail', 'channelMapping', 'syncMonitor', 'webhooks', 'flowGuide'];
 
     case 'manager':
       return [
-        'dashboard', 'operationsAnalytics',
+        'dashboard', 'inventory',
         'orders', 'fulfillment', 'returns', 'customers',
-        'products', 'inventory', 'purchaseOrders', 'transfers', 'stockLedger', 'batches', 'warehouses',
-        'orderEconomics', 'skuEconomics', 'channelEconomics', 'feeReconciliation', 'pricingCalculator',
-        'salesVelocity', 'revenueReport',
-        'marketingAnalytics', 'customerAnalytics', 'salesAnalytics', 'inventoryAnalytics',
-        'founderExecution',
-        'channelConnections', 'auditTrail', 'ownerValidation', 'businessRules', 'simulator',
-        'bufferRules', 'routingRules', 'channelMapping', 'syncMonitor', 'complaints', 'automationRules',
-        'flowGuide',
+        'orderEconomics', 'skuEconomics', 'channelEconomics', 'cashWorkingCapital', 'pricingCalculator',
+        'simulator',
       ];
 
     case 'warehouse':
-      return [
-        'dashboard', 'operationsAnalytics',
-        'orders', 'fulfillment', 'returns',
-        'products', 'inventory', 'purchaseOrders', 'transfers', 'batches', 'warehouses', 'stockLedger',
-        'flowGuide',
-      ];
+      return ['dashboard', 'inventory', 'orders', 'fulfillment', 'returns'];
 
+    case 'admin':
     case 'finance':
-      if (!ENABLE_FINANCE_ROLE) return [];
-      return [
-        'dashboard', 'orders',
-        'orderEconomics', 'skuEconomics', 'channelEconomics', 'cashWorkingCapital', 'pricingCalculator',
-        'ledger', 'feeReconciliation', 'marginControl', 'salesVelocity', 'revenueReport',
-        'auditTrail', 'founderExecution', 'flowGuide',
-      ];
-
     case 'growth':
-      return [
-        'dashboard', 'orders', 'products', 'inventory',
-        'marketingAnalytics', 'customerAnalytics', 'salesAnalytics', 'inventoryAnalytics',
-        'skuEconomics', 'channelEconomics', 'pricingCalculator',
-        'founderExecution', 'flowGuide',
-      ];
-
     case 'viewer':
-      // R26: Viewer deprecated, no operational access
       return [];
 
     default:
-      return ['dashboard', 'flowGuide'];
+      return ['dashboard'];
   }
 }
 
 // Preserve all original modules; role access is independent of module readiness.
 export const OPTIONAL_PAGES = new Set<string>();
 export function getAllowedPagesForRole(role: TenantRole | null | undefined): string[] {
-  const pages = getRolePages(role);
-  return pages.includes('dashboard') ? [...pages, 'workQueue'] : pages;
+  return getRolePages(role);
 }

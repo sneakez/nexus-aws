@@ -1,4 +1,10 @@
-import React, { useMemo } from 'react';
+import { mockStore } from '@/mock/store';
+import { analyticsService } from '@/analytics/analyticsService';
+import { slaSummary } from '@/analytics/operations';
+import { hasPermission } from '@/lib/permissions';
+import { useAuth } from '@/providers/AuthProvider';
+import { formatCurrency } from '@/lib/utils';
+import React, { useMemo, useEffect, useState } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -20,41 +26,6 @@ import {
   Warehouse
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/cn';
-
-// Realistic hourly order flow data for today
-const HOURLY_DATA = [
-  { time: '00:00', orders: 2, cancelled: 0 },
-  { time: '02:00', orders: 1, cancelled: 0 },
-  { time: '04:00', orders: 4, cancelled: 0 },
-  { time: '06:00', orders: 8, cancelled: 1 },
-  { time: '08:00', orders: 12, cancelled: 1 },
-  { time: '10:00', orders: 16, cancelled: 2 },
-  { time: '12:00', orders: 22, cancelled: 2 }, // Noon peak
-  { time: '14:00', orders: 18, cancelled: 1 },
-  { time: '16:00', orders: 15, cancelled: 3 },
-  { time: '18:00', orders: 20, cancelled: 1 },
-  { time: '20:00', orders: 26, cancelled: 2 }, // Evening livestream peak
-  { time: '22:00', orders: 11, cancelled: 1 },
-];
-
-// Realistic daily order data for current month (October 2026)
-const DAILY_DATA = [
-  { day: '01/10', orders: 68, cancelled: 3 },
-  { day: '03/10', orders: 84, cancelled: 4 },
-  { day: '05/10', orders: 112, cancelled: 5 },
-  { day: '07/10', orders: 95, cancelled: 3 },
-  { day: '09/10', orders: 88, cancelled: 4 },
-  { day: '11/10', orders: 76, cancelled: 2 },
-  { day: '13/10', orders: 92, cancelled: 4 },
-  { day: '15/10', orders: 124, cancelled: 6 }, // Mid-month sale
-  { day: '17/10', orders: 108, cancelled: 4 },
-  { day: '19/10', orders: 89, cancelled: 3 },
-  { day: '21/10', orders: 96, cancelled: 5 },
-  { day: '23/10', orders: 115, cancelled: 4 },
-  { day: '25/10', orders: 130, cancelled: 6 }, // Salary-day flash sale
-  { day: '27/10', orders: 102, cancelled: 3 },
-  { day: '29/10', orders: 137, cancelled: 4 }, // Today
-];
 
 /**
  * SpeedometerGauge: Premium SVG half-circle gauge measuring cycle time
@@ -180,9 +151,21 @@ function SpeedometerGauge({ valueHours = 3.4, maxHours = 10 }: { valueHours: num
 }
 
 export function OperationsAnalyticsPage() {
-  const currentTimeDisplay = useMemo(() => {
-    return '11:00 • Trực tiếp';
-  }, []);
+  const [,revise]=useState(0);
+  useEffect(()=>mockStore.subscribe(()=>revise(n=>n+1)),[]);
+  const {activeRole}=useAuth(), canFinance=hasPermission(activeRole,'analytics:view');
+  const orders=mockStore.getOrders(), sla=slaSummary(orders,mockStore.getOperationsConfig().sla_warning_hours);
+  const currentTimeDisplay=new Date().toLocaleString('vi-VN')+' · dữ liệu mock';
+  const periods=analyticsService.filterOrdersByPeriod(orders,'today'), month=analyticsService.filterOrdersByPeriod(orders,'last_30_days');
+  const econ=canFinance?analyticsService.getOrderEconomics():[];
+  const todayNet=econ.filter(e=>periods.current.some(o=>o.id===e.orderId)).reduce((s,e)=>s+e.netRevenue,0);
+  const monthNet=econ.filter(e=>month.current.some(o=>o.id===e.orderId)).reduce((s,e)=>s+e.netRevenue,0);
+  const pending=orders.filter(o=>['pending','processing'].includes(o.status));
+  const returns=mockStore.getReturns().filter(r=>!['closed','completed','cancelled','rejected'].includes(r.status));
+  const cycles=orders.filter(o=>o.shipped_at && Number.isFinite(Date.parse(o.placed_at))).map(o=>(Date.parse(o.shipped_at!)-Date.parse(o.placed_at))/3600000);
+  const avgCycle=cycles.length?cycles.reduce((s,n)=>s+n,0)/cycles.length:null;
+  const HOURLY_DATA=Array.from({length:12},(_,i)=>({time:`${i*2}:00`,orders:periods.current.filter(o=>Math.floor(new Date(Date.parse(o.placed_at)+7*3600000).getUTCHours()/2)===i).length,cancelled:periods.current.filter(o=>o.status==='cancelled'&&Math.floor(new Date(Date.parse(o.placed_at)+7*3600000).getUTCHours()/2)===i).length}));
+  const DAILY_DATA=Array.from({length:30},(_,i)=>{const day=new Date(Date.now()-(29-i)*86400000).toISOString().slice(0,10);return{day,orders:month.current.filter(o=>new Date(Date.parse(o.placed_at)+7*3600000).toISOString().slice(0,10)===day).length,cancelled:month.current.filter(o=>o.status==='cancelled'&&new Date(Date.parse(o.placed_at)+7*3600000).toISOString().slice(0,10)===day).length};});
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-7xl mx-auto animate-fade-in-up font-sans">
@@ -194,7 +177,7 @@ export function OperationsAnalyticsPage() {
               Bảng Điều Hành &amp; SLA Kho
             </h1>
             <span className="badge bg-teal-50 text-[#1E647F] border-teal-200 text-xs font-semibold">
-              Live Warehouse Control
+              Mock · cùng định nghĩa SLA
             </span>
           </div>
           <p className="text-xs text-[#6D7175] mt-1">
@@ -206,7 +189,7 @@ export function OperationsAnalyticsPage() {
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <span>{currentTimeDisplay}</span>
           <span className="text-slate-300">|</span>
-          <span className="text-slate-500">Kho Tổng HCM &amp; HN</span>
+          <span className="text-slate-500">Kho trong phạm vi session</span>
         </div>
       </div>
 
@@ -231,14 +214,14 @@ export function OperationsAnalyticsPage() {
               {/* Orders count */}
               <div>
                 <span className="text-3xl sm:text-4xl font-extrabold text-[#123A52] tracking-tight block">
-                  137
+                  {periods.current.length}
                 </span>
                 <span className="text-xs font-semibold text-[#6D7175]">
                   Đơn hàng thành công
                 </span>
                 <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 mt-1">
                   <ArrowUpRight size={13} weight="bold" />
-                  <span>+35 so với cùng ngày tuần trước</span>
+                  <span>Đếm đơn trong scope hiện tại</span>
                 </div>
               </div>
             </div>
@@ -246,14 +229,14 @@ export function OperationsAnalyticsPage() {
             {/* Revenue */}
             <div className="pt-4 mt-4 border-t border-slate-100">
               <span className="text-2xl sm:text-3xl font-extrabold text-[#123A52] tracking-tight block">
-                21.8M ₫
+                {canFinance?formatCurrency(todayNet):'Không có quyền xem tiền'}
               </span>
               <span className="text-xs font-semibold text-[#6D7175]">
                 Doanh thu phát sinh hôm nay
               </span>
               <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 mt-1">
                 <ArrowUpRight size={13} weight="bold" />
-                <span>+5.6M ₫ so với cùng ngày tuần trước</span>
+                <span>Net đã giao − refund; chưa có so sánh</span>
               </div>
             </div>
           </div>
@@ -265,20 +248,20 @@ export function OperationsAnalyticsPage() {
                 <span className="text-xs font-bold uppercase tracking-wider text-[#6D7175]">
                   30 Ngày Qua (Past 30 Days)
                 </span>
-                <span className="badge bg-slate-100 text-slate-700 text-[10px] font-bold">Tháng 10</span>
+                <span className="badge bg-slate-100 text-slate-700 text-[10px] font-bold">Kỳ đã lọc</span>
               </div>
 
               {/* Orders count */}
               <div>
                 <span className="text-3xl sm:text-4xl font-extrabold text-[#123A52] tracking-tight block">
-                  2,822
+                  {month.current.length}
                 </span>
                 <span className="text-xs font-semibold text-[#6D7175]">
                   Tổng sản lượng đơn
                 </span>
                 <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 mt-1">
                   <ArrowUpRight size={13} weight="bold" />
-                  <span>+834 đơn so với tháng trước</span>
+                  <span>Kỳ 30 ngày; không fallback</span>
                 </div>
               </div>
             </div>
@@ -286,14 +269,14 @@ export function OperationsAnalyticsPage() {
             {/* Revenue */}
             <div className="pt-4 mt-4 border-t border-slate-100">
               <span className="text-2xl sm:text-3xl font-extrabold text-[#123A52] tracking-tight block">
-                448.7M ₫
+                {canFinance?formatCurrency(monthNet):'Không có quyền xem tiền'}
               </span>
               <span className="text-xs font-semibold text-[#6D7175]">
                 Doanh thu thực tế (Net Revenue)
               </span>
               <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 mt-1">
                 <ArrowUpRight size={13} weight="bold" />
-                <span>+132.6M ₫ so với tháng trước</span>
+                <span>Nguồn đơn mock cùng kỳ</span>
               </div>
             </div>
           </div>
@@ -427,7 +410,7 @@ export function OperationsAnalyticsPage() {
 
             <div className="my-2">
               <span className="text-4xl sm:text-5xl font-black text-[#123A52] tracking-tight block">
-                43
+                {pending.length}
               </span>
               <span className="text-xs font-semibold text-rose-800 block mt-0.5">
                 Đơn chờ xuất kho (Unfulfilled orders)
@@ -435,8 +418,8 @@ export function OperationsAnalyticsPage() {
             </div>
 
             <div className="pt-2.5 mt-1 border-t border-rose-100 flex items-center justify-between text-[11px] text-[#6D7175]">
-              <span>34 chờ nhặt • 7 đóng gói</span>
-              <span className="font-bold text-rose-700">2 sát hạn SLA</span>
+              <span>{pending.filter(o=>o.fulfillment_status!=='packed').length} chờ xử lý • {pending.filter(o=>o.fulfillment_status==='packed').length} đóng gói</span>
+              <span className="font-bold text-rose-700">{sla.overdue} quá hạn · {sla.dueSoon} sắp hạn</span>
             </div>
           </div>
 
@@ -452,7 +435,7 @@ export function OperationsAnalyticsPage() {
             </div>
 
             {/* SVG Speedometer Gauge */}
-            <SpeedometerGauge valueHours={3.4} maxHours={10} />
+            <SpeedometerGauge valueHours={avgCycle ?? 0} maxHours={10} /><p className="text-xs text-slate-500">{avgCycle===null?'Chưa đủ mốc bàn giao để tính':'Từ đơn có mốc đặt và bàn giao'}</p>
           </div>
 
           {/* Card 5: Returns & RMA to be processed */}
@@ -468,7 +451,7 @@ export function OperationsAnalyticsPage() {
 
             <div className="my-1.5">
               <span className="text-3xl sm:text-4xl font-extrabold text-[#123A52] tracking-tight block">
-                23
+                {returns.length}
               </span>
               <span className="text-xs font-semibold text-[#6D7175] block mt-0.5">
                 Đơn đổi trả RMA cần kiểm tra (Returns)
@@ -476,7 +459,7 @@ export function OperationsAnalyticsPage() {
             </div>
 
             <div className="pt-2 mt-1 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-              <span>18 chờ shipper trả • 5 lỗi kỹ thuật</span>
+              <span>Nhận/QC và tiền hoàn độc lập</span>
             </div>
           </div>
 
@@ -494,46 +477,13 @@ export function OperationsAnalyticsPage() {
             </h3>
           </div>
           <span className="text-[11px] text-[#6D7175]">
-            Tuân thủ cam kết 24h bàn giao shipper sàn TikTok Shop &amp; Shopee
+            SLA từng đơn; đúng hạn tính từ mốc kho bàn giao, không từ ngày hiện tại
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Kho HCM */}
-          <div className="p-3.5 rounded-lg border border-slate-200 bg-[#F8FAFC] flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-xs text-[#202223]">Kho Tổng TP. Hồ Chí Minh</span>
-                <span className="badge bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-bold">
-                  98.8% SLA
-                </span>
-              </div>
-              <p className="text-[11px] text-[#6D7175] mt-1">
-                Đã xử lý <strong className="text-[#123A52]">340 đơn</strong> • Cycle Time: <strong className="text-[#123A52]">3.1 giờ</strong> • Tỷ lệ lỗi: 0.2%
-              </p>
-            </div>
-            <div className="w-24 bg-slate-200 rounded-full h-2 overflow-hidden shrink-0">
-              <div className="bg-emerald-500 h-2 rounded-full" style={{ width: '98.8%' }} />
-            </div>
-          </div>
+          {mockStore.getWarehouses().map(w=>{const rows=orders.filter(o=>o.assigned_warehouse_id===w.id),summary=slaSummary(rows,mockStore.getOperationsConfig().sla_warning_hours);return <div key={w.id} className="p-3.5 rounded-lg border border-slate-200 bg-[#F8FAFC] flex items-center justify-between"><div><p className="font-bold text-xs">{w.name}</p><p className="text-xs">{rows.length} đơn · {summary.overdue} quá hạn · {summary.dueSoon} sắp hạn · {summary.unknown} thiếu mốc</p><p className="text-xs">Bàn giao đúng hạn: {summary.compliance===null?'Chưa đủ dữ liệu':`${summary.compliance.toFixed(1)}%`}</p></div></div>})}
 
-          {/* Kho Hanoi */}
-          <div className="p-3.5 rounded-lg border border-slate-200 bg-[#F8FAFC] flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-xs text-[#202223]">Kho Chi Nhánh Hà Nội</span>
-                <span className="badge bg-teal-50 text-[#1E647F] border-teal-200 text-[10px] font-bold">
-                  97.4% SLA
-                </span>
-              </div>
-              <p className="text-[11px] text-[#6D7175] mt-1">
-                Đã xử lý <strong className="text-[#123A52]">180 đơn</strong> • Cycle Time: <strong className="text-[#123A52]">3.9 giờ</strong> • Tỷ lệ lỗi: 0.5%
-              </p>
-            </div>
-            <div className="w-24 bg-slate-200 rounded-full h-2 overflow-hidden shrink-0">
-              <div className="bg-[#1E647F] h-2 rounded-full" style={{ width: '97.4%' }} />
-            </div>
-          </div>
         </div>
       </div>
     </div>

@@ -250,6 +250,7 @@ export interface ScenarioValidationResult {
 
 // ============ Database Snapshot Structure ============
 export interface MockDatabaseSnapshot {
+  finance?: import('./finance').FinanceState;
   marketplaceEvents?: Array<{ id: string; tenant_id: string; shop_id: string; status: 'pending' | 'failed' | 'processed'; error?: string; order: Order; items: OrderItem[] }>;
   sourceVersions?: Record<string, number>;
   activeUserId?: string | null;
@@ -258,7 +259,7 @@ export interface MockDatabaseSnapshot {
     lines: Array<{ item_id: string; quantity: number; pass_qty: number; fail_qty: number; serials?: string[]; wrong_serial?: boolean }>;
   }>;
   processedCommands?: Record<string, string>;
-  handoffAssignments?: Record<string, { assignee_id: string | null; history: Array<{ actor_id: string; assignee_id: string | null; at: string }> }>;
+  handoffAssignments?: Record<string, { assignee_id: string | null; due_at?: string; status?: 'open' | 'processing' | 'resolved' | 'confirmed'; discovered_by?: string; resolved_by?: string; confirmed_by?: string; note?: string; history: Array<{ actor_id: string; assignee_id: string | null; at: string; action?: string; note?: string }> }>;
   growthRecommendations?: Array<{ id: string; tenant_id: string; order_id: string; reason: string; actor_id: string; status: 'open' | 'accepted' | 'dismissed'; created_at: string }>;
   schemaVersion: number;
   snapshotId?: string;

@@ -1,5 +1,5 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "nexusoms-aws-mvp",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,7 +13,8 @@
     "test:ui": "node scripts/ocean-ui-flow.mjs",
     "test:ui:edges": "node scripts/ocean-ui-edges.mjs",
     "test:ui:followup": "node scripts/ocean-ui-audit.mjs",
-    "test:ui:login": "node scripts/commerce-ui-login.mjs"
+    "test:ui:login": "node scripts/commerce-ui-login.mjs",
+    "test:ui:money": "node scripts/operations-money-ui.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

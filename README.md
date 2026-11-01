@@ -1,55 +1,93 @@
-# Noxus-V3 / NexusOMS — Ocean prototype
+# NexusOMS AWS MVP Prototype
 
-React/TypeScript, dữ liệu mock bền qua reload. UI gốc được phục hồi trên nhánh `codex/restore-ocean-role-flows`; dashboard và các trang xử lý chuyên biệt được giữ riêng. Công việc & bàn giao chỉ là danh sách link đến chứng từ.
+Prototype giao diện cho hệ thống vận hành thương mại đa kênh NexusOMS. Phiên bản này tập trung vào luồng demo tốt nghiệp FCAJ và giữ kiến trúc sẵn sàng nối backend .NET/AWS sau khi luồng nghiệp vụ local đã ổn định.
 
-## Chạy app
+## Phạm vi MVP
+
+Prototype chỉ đưa các phân hệ cốt lõi lên điều hướng chính:
+
+1. Tổng quan KPI
+2. Vận hành kho
+3. Đơn hàng
+4. Xử lý đơn
+5. Đổi trả hàng
+6. Khách hàng
+7. Lợi nhuận đơn
+8. Lợi nhuận SKU
+9. Hiệu quả kênh
+10. Dòng tiền
+11. Định giá bán
+12. Kết nối sàn, ánh xạ SKU và mô phỏng Flash Sale
+
+Các màn hình nâng cao vẫn được giữ trong source để bảo toàn công việc cũ, nhưng không xuất hiện trong menu MVP.
+
+## Role trong prototype
+
+- **Owner**: toàn bộ 12 phân hệ, bao gồm cấu hình kết nối và ánh xạ SKU.
+- **Manager**: vận hành đơn, CRM, tài chính/P&L và chạy simulator.
+- **Warehouse**: dashboard, tồn kho, đơn hàng, xử lý đơn và đổi trả.
+
+Admin, Finance, Growth và Viewer được giữ ở tầng mock engine để tương thích dữ liệu/test cũ, nhưng không còn là tài khoản đăng nhập hoặc role điều hướng của MVP. Public marketing, đăng ký, onboarding, quản trị người dùng và các màn hình nâng cao cũng đã được rút khỏi runtime prototype.
+
+## Chạy local
 
 ```powershell
-npm ls --depth=0
-# Chỉ npm ci khi dependencies thiếu hoặc lệch package-lock.json.
+npm install
 npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
 ```
 
-Mở http://127.0.0.1:5174/app. Mặc định dùng mock, không cần backend/OAuth/credentials thật. Đăng nhập dùng nút điền nhanh: owner@nexusoms.io, admin@nexusoms.io, manager@nexusoms.io, kho@nexusoms.io, growth@nexusoms.io. Mật khẩu mock không được xác thực, nút điền sẵn `demo`. Email lạ không tự thành Owner. Menu tài khoản cuối sidebar đổi demo user; menu dài có vùng cuộn, màn hình hẹp dùng nút ba gạch.
+Mở `http://127.0.0.1:5174/app`.
 
-## Thử role và bàn giao trên các trang gốc
+Prototype mặc định dùng mock store và không cần AWS credentials, Supabase thật hay backend .NET. Ở màn hình đăng nhập có thể dùng các tài khoản demo được điền nhanh; mật khẩu demo là `demo`.
 
-1. Owner → Mô phỏng → Nạp fixture RAM-X (có xác nhận thay dữ liệu demo). Nút Nạp ca nhiều dòng dùng cho serial, nhận nhiều đợt/mixed QC và PO. Scope tài khoản nằm ở Cấu hình.
-2. Admin → Nhật ký đồng bộ → event A → Kết nối lại shop demo → Retry A/B/C. Đơn được chuyển cho Vận hành, không sinh trùng khi retry.
-3. Manager → Đơn hàng → mở drawer từng đơn → Giữ tồn & giao kho, Phân công kho. Khi SKU chưa map: xử lý ở Ánh xạ SKU. Yêu cầu hủy dừng kho; lý do/kết quả nguồn quyết định hủy, từ chối hoặc rút.
-4. Warehouse → Xử lý đơn → Đơn đã giao nhóm Kho → mở drawer → kiểm RAM-X, nhặt, đóng gói, nhập vận đơn, bàn giao A/C; để B packed để thử hủy. Ca nhiều dòng cần RAM-X và SERIAL-SECOND.
-5. Manager → drawer Đơn hàng → Kết quả sàn mô phỏng & giao dịch tiền: A giao thành công, C giao thất bại. Kho không tự kết luận giao thành công.
-6. Warehouse → Đổi trả → mở hồ sơ C → nhập lượng nhận từng dòng → Lưu thực nhận → nhập QC đạt/lỗi → Lưu kết quả QC. Manager xử lý phần thiếu, claim và mở lại hàng đến muộn ngay trong hồ sơ; tiền độc lập với hàng.
-7. Manager → Đơn hàng ghi phí nguồn A100000/B0/C60000 → Đối soát phí → lưu. Refund/Ads credit dùng mã sự kiện riêng; giao dịch đến trễ cập nhật báo cáo. Điều chỉnh/bồi thường ở modal phí có mã giao dịch, lý do và actor.
-8. Growth → Hiệu quả Ads → xem dữ liệu cùng engine, gửi đề xuất; Manager tiếp nhận tại báo cáo đó. Đổi scope rồi reload để kiểm tra giới hạn đọc.
-
-Fixture A/B/C: available cuối9, sales1000000, Ads300000, contribution-120000. Ads credit C40000 → netAds260000 và contribution-80000. Bồi thường tách sales.
-
-## Kiểm chứng
-
-Giữ server local chạy trước các script browser:
+## Kiểm tra chất lượng
 
 ```powershell
-npm test
 npm run typecheck
+npm test
 npm run build
-npm run test:ui          # Luồng liên role qua các trang gốc
-npm run test:ui:edges    # RMA, QC, refund/phí, PO, scope, mobile
-npm run test:ui:followup # Từng menu/trang theo role và ảnh UI
-npm run test:ui:login    # Đăng nhập/reload/đăng xuất 5 tài khoản demo
 ```
 
-Các script `commerce-ui-uat/edges/followup.mjs` cũ được giữ như lịch sử cho UI WorkQueue trước đây; npm scripts hiện trỏ sang các bài Ocean, không dùng kết quả cũ để kết luận UI mới. Puppeteer/Chromium đã có trên máy kiểm thử; không cài lại khi không cần. Launcher hỗ trợ UAT_CHROMIUM_PATH; các script Ocean dùng localhost:5174. Script login hỗ trợ UAT_BASE_URL và UAT_OUTPUT_DIR. Dữ liệu kiểm thử được tạo qua UI, localStorage chỉ đọc để assert nghiệp vụ.
+Các bài kiểm thử UI chuyên sâu nằm trong `scripts/`. Script lịch sử từ các vòng nghiệm thu cũ được gom vào `scripts/legacy/` và không còn nằm ở thư mục gốc.
 
-Login dùng `chrome-headless-shell` đã cài cùng Puppeteer: unified Chrome 156 headless trên Windows kiểm thử không chuyển input sau reload. Bài login kiểm 5 role tuần tự trên cùng browser/page, cả chuột và Space, reload sau đăng nhập và sau logout. `UAT_LOGIN_BROWSER=chrome` dùng để đối chứng chế độ còn lỗi, không coi kết quả shell là PASS của chế độ đó. [Điều tra](docs/audit/LOGIN_UAT_INVESTIGATION.md). Sinh tổng hợp từ evidence bằng `node scripts/ocean-gate-summary.mjs`: [GATE_SUMMARY](docs/audit/GATE_SUMMARY.md).
+## Cấu trúc chính
 
-[Báo cáo phục hồi, kết quả thực chạy và ảnh trước/sau](docs/audit/OCEAN_RESTORE_RESULTS.md). [Đối chiếu quyền và đề xuất Viewer/Finance/CS](docs/audit/OCEAN_ROLE_REVIEW.md). Các báo cáo audit/ZIP trước đó giữ nguyên làm lịch sử, không mô tả trạng thái UI mới nhất.
+```text
+src/
+  app/           AppRoot, router, AppShell, navigation và page registry
+  features/      Màn hình và public API theo domain nghiệp vụ
+  components/    UI primitives, layout dùng chung và biểu đồ
+  hooks/         React hooks dùng chung
+  services/      Tích hợp kỹ thuật như ký webhook/API adapter
+  stores/        Facade state cho application layer
+  schemas/       Contract và validation payload
+  providers/     Auth/tenant/toast providers
+  mock/          Dữ liệu và engine nghiệp vụ local
+  analytics/     Tính KPI, P&L và báo cáo
+  utils/         Formatter và helper thuần
+  pages/         Wrapper tương thích cho code/test legacy
+  tests/         Unit và integration tests
+scripts/         UI flows đang dùng
+supabase/        Schema và migration tham chiếu
+docs/            Tài liệu kỹ thuật và lịch sử kiểm chứng
+```
 
-## Mốc bảo toàn công việc
+Runtime mới chỉ import screen qua `features/*`; `pages/*` không còn là nơi đăng ký route. Chi tiết ranh giới module và lộ trình Next.js nằm tại `docs/implementation/PROJECT_STRUCTURE.md`.
 
-- Nền UI đã xác minh: tree b891421, giữ các sửa typecheck của f801f38 và engine nghiệp vụ hiện tại.
-- Backup trước phục hồi: codex/backup-before-ocean-restore-20261031, commit c52cf87.
-- Nhánh kiểm toán riêng: codex/restore-ocean-role-flows; không merge main hoặc deploy.
-- Viewer/Finance/CS chưa bị thay cơ cấu thêm trong lần này; xem bảng quyền riêng.
+## Hướng AWS dự kiến
 
-Các màn hình nâng cao được mở lại, không đồng nghĩa mọi thao tác của mọi module đã nghiệm thu. Backend/sàn thật, concurrency, exchange/warranty, full Maker/Checker và mọi chính sách sàn nằm ngoài bằng chứng hiện có; xem báo cáo cho ca cụ thể.
+- .NET 8/9 Web API đóng gói Docker trên AWS App Runner
+- Amazon SQS và DLQ cho webhook bất đồng bộ
+- Amazon RDS PostgreSQL cho ordering, inventory và finance
+- Amazon S3 với pre-signed URL cho ảnh và chứng từ
+- Amazon EventBridge cho job định kỳ
+- SSM Parameter Store cho secret và cấu hình
+- CloudWatch và X-Ray cho log, metric và trace
+
+Đây là prototype frontend. Simulator tạo 100 webhook local, ký HMAC-SHA256 và gọi mock store để chứng minh nguyên tắc chống oversell; nó không gửi request đến Shopee/TikTok. SQS, RDS, App Runner, xác minh HMAC phía server và atomic inventory phải được triển khai và kiểm chứng ở backend trước khi coi là production-ready. Contract mô phỏng nằm tại `docs/api/WEBHOOK_SIMULATOR_CONTRACT.md`.
+
+## Quy tắc repository
+
+- Không commit `node_modules`, `dist`, evidence trong `artifacts`, file `.env` hoặc secret.
+- Không xóa mock engine hiện có khi chuyển sang API thật; tách adapter để giữ test local.
+- Mọi thay đổi luồng đơn, kho và P&L phải chạy lại typecheck, test và build.
