@@ -65,14 +65,13 @@ src/
   mock/          Dữ liệu và engine nghiệp vụ local
   analytics/     Tính KPI, P&L và báo cáo
   utils/         Formatter và helper thuần
-  pages/         Wrapper tương thích cho code/test legacy
   tests/         Unit và integration tests
-scripts/         UI flows đang dùng
+scripts/         Smoke test MVP và kiểm thử đăng nhập theo role
 supabase/        Schema và migration tham chiếu
 docs/            Tài liệu kỹ thuật và lịch sử kiểm chứng
 ```
 
-Runtime mới chỉ import screen qua `features/*`; `pages/*` không còn là nơi đăng ký route. Chi tiết ranh giới module và lộ trình Next.js nằm tại `docs/implementation/PROJECT_STRUCTURE.md`.
+Runtime chỉ import screen qua `features/*`. Chi tiết ranh giới module và lộ trình Next.js nằm tại `docs/implementation/PROJECT_STRUCTURE.md`.
 
 ## Hướng AWS dự kiến
 

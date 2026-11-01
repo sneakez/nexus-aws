@@ -151,7 +151,8 @@ export function ExecutiveAnalyticsDashboard({ onNavigate }: ExecutiveAnalyticsDa
   const money = mockStore.getFinanceOverview();
   const channelConnections = mockStore.getSnapshot().channelConnections ?? [];
   const connectedChannels = channelConnections.filter(connection => connection.status === 'connected').length;
-  const canCash = hasPermission(mockStore.getExecutionContext()?.role,'finance:view');
+  const activeRole = mockStore.getExecutionContext()?.role;
+  const canCash = hasPermission(activeRole, 'finance:view');
   const trendPerspectiveData = data.revenueTrend.map(t => {
     const dayOrders = periodOrders.filter(o => new Date(Date.parse(o.placed_at)+7*3600000).toISOString().slice(0,10) === t.date);
     const dayEcon = analyticsService.getOrderEconomics().filter(e => dayOrders.some(o => o.id === e.orderId));
@@ -260,6 +261,44 @@ export function ExecutiveAnalyticsDashboard({ onNavigate }: ExecutiveAnalyticsDa
   // Top Critical Alert
   const criticalInsight = data.decisionInsights.find(i => i.severity === 'CRITICAL') || data.decisionInsights[0] || { title: periodOrders.length ? 'Chưa có cảnh báo đủ bằng chứng trong kỳ; SKU thiếu lịch sử cần kiểm tra riêng.' : 'Không có đơn trong kỳ đã chọn.', financialImpactEstimate: 0, relatedEntityLink: {page:'orders',label:'Kiểm tra đơn nguồn'} };
 
+  if (!canCash) {
+    return (
+      <div className="px-4 sm:px-6 lg:px-8 py-6 space-y-6 max-w-7xl mx-auto animate-fade-in-up">
+        <div className="pb-3 border-b border-[#E1E3E5]">
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#202223] tracking-tight">Bảng Điều Hành Kho</h1>
+            <span className="badge bg-teal-50 text-[#1E647F] border-teal-200 text-xs font-semibold">Vận hành kho</span>
+          </div>
+          <p className="text-xs text-[#6D7175] mt-1">Theo dõi khối lượng đơn, đổi trả và SLA xuất kho trong phạm vi được giao.</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          <KPICard title="Sản Lượng Đơn Hàng" value={`${data.kpis.orderVolume.value.toLocaleString()} đơn`} subtitle="Đơn phát sinh trong kỳ" deltaPercent={data.kpis.orderVolume.deltaPercent} trend={data.kpis.orderVolume.trend} icon={ShoppingBag} />
+          <KPICard title="Tỷ Lệ Hoàn Hàng" value={`${data.kpis.returnRate.value}%`} subtitle="Đơn hủy, từ chối nhận và RMA" deltaPercent={data.kpis.returnRate.delta} trend={data.kpis.returnRate.delta > 0 ? 'up' : 'down'} isInverseTrend icon={ArrowUUpLeft} />
+          <KPICard title="Kênh Đang Kết Nối" value={`${connectedChannels}/${channelConnections.length}`} subtitle="Kênh có thể nhận luồng đơn" icon={Package} />
+        </div>
+
+        <AnalyticsCard title="Xu Hướng Đơn & SLA" subtitle="Đơn mới, bàn giao đúng SLA và đổi trả trong kỳ">
+          <LineAreaChart data={trendPerspectiveData} xKey="label" height={270} currency={false} series={[
+            { key: 'newOrders', label: 'Đơn mới đặt (đơn)', color: '#1E647F' },
+            { key: 'deliveredSla', label: 'Xuất kho đúng SLA (đơn)', color: '#10B981' },
+            { key: 'returnedOrders', label: 'Hoàn trả RTS (đơn)', color: '#EF4444' }
+          ]} />
+          <div className="mt-3 p-2.5 rounded-lg bg-blue-50/70 border border-blue-200 flex items-center justify-between text-xs">
+            <span className="text-blue-900">📦 <strong>Vận hành kho:</strong> Ưu tiên các đơn sắp hạn và xử lý trả hàng cần QC.</span>
+            <button onClick={() => onNavigate?.('fulfillment')} className="text-xs font-bold text-blue-900 hover:underline shrink-0 ml-2 flex items-center gap-1">
+              <span>Mở xử lý đơn</span><ArrowRight size={12} />
+            </button>
+          </div>
+        </AnalyticsCard>
+
+        <AnalyticsCard title="Mật Độ Đơn Hàng Theo Ngày Và Khung Giờ" subtitle="Dùng để bố trí ca kho và chuẩn bị đợt cao điểm">
+          <HeatmapChart />
+        </AnalyticsCard>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-6 space-y-6 max-w-7xl mx-auto animate-fade-in-up">
       {/* 1. Header & Controls */}
@@ -270,7 +309,7 @@ export function ExecutiveAnalyticsDashboard({ onNavigate }: ExecutiveAnalyticsDa
               Bảng Điều Hành Kinh Doanh
             </h1>
             <span className="badge bg-teal-50 text-[#1E647F] border-teal-200 text-xs font-semibold">
-              Điều hành dành cho Owner
+              Điều hành dành cho {activeRole === 'manager' ? 'Manager' : 'Owner'}
             </span>
           </div>
           <p className="text-xs text-[#6D7175] mt-1">

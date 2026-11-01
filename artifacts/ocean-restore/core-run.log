@@ -1,5 +1,0 @@
-
-> vite-react-typescript-starter@0.0.0 test:ui
-> node scripts/ocean-ui-flow.mjs
-
-{"status":"PASS","steps":10}

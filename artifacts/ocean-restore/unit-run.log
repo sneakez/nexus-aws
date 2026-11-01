@@ -1,5 +1,0 @@
-
-> vite-react-typescript-starter@0.0.0 test
-> vitest run --reporter=json --outputFile=artifacts/ocean-restore/unit-results.json
-
-JSON report written to D:/Noxus-V3/artifacts/ocean-restore/unit-results.json

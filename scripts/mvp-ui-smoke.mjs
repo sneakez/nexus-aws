@@ -2,7 +2,7 @@ import { launchUatBrowser } from './uat-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const base = process.env.UAT_BASE_URL || 'http://127.0.0.1:5175';
+const base = process.env.UAT_BASE_URL || 'http://127.0.0.1:5174';
 const dir = process.env.UAT_OUTPUT_DIR || 'artifacts/mvp-smoke';
 await fs.mkdir(dir, { recursive: true });
 

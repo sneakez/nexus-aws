@@ -10,11 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
-    "test:ui": "node scripts/ocean-ui-flow.mjs",
-    "test:ui:edges": "node scripts/ocean-ui-edges.mjs",
-    "test:ui:followup": "node scripts/ocean-ui-audit.mjs",
     "test:ui:login": "node scripts/commerce-ui-login.mjs",
-    "test:ui:money": "node scripts/operations-money-ui.mjs"
+    "test:ui": "node scripts/mvp-ui-smoke.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
