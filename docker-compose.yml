@@ -9,6 +9,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Supabase__Url: ${SUPABASE_URL:-}
+      ConnectionStrings__Postgres: ${SUPABASE_DB_CONNECTION_STRING:-}
     restart: unless-stopped
 
   frontend:

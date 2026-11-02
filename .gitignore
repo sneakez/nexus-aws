@@ -17,6 +17,7 @@ coverage/
 
 .vscode/*
 !.vscode/extensions.json
+.vs/
 .idea
 .DS_Store
 *.suo
@@ -28,6 +29,7 @@ coverage/
 *.sw?
 .env
 supabase/.temp/
+work/
 
 # Environment
 .env.*

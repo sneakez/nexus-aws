@@ -1,6 +1,7 @@
 using NexusOMS.Api.Authorization;
 using NexusOMS.InventoryAndChannels;
 using NexusOMS.OrderingAndFinance;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +10,9 @@ builder.Services
     .AddApplicationPart(typeof(Program).Assembly);
 builder.Services.AddOpenApi();
 builder.Services.AddNexusAuthorization(builder.Configuration);
+var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres")
+    ?? throw new InvalidOperationException("ConnectionStrings:Postgres must be configured.");
+builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgresConnectionString));
 builder.Services.AddInventoryAndChannelsModule();
 builder.Services.AddOrderingAndFinanceModule();
 

@@ -27,8 +27,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet restore NexusOMS.slnx
-      - run: dotnet build NexusOMS.slnx --configuration Release --no-restore
-      - run: dotnet test NexusOMS.slnx --configuration Release --no-build --verbosity normal
+      - run: dotnet build src/NexusOMS.Api/NexusOMS.Api.csproj --configuration Release --no-restore
+      - run: dotnet test tests/NexusOMS.ApiTests/NexusOMS.ApiTests.csproj --configuration Release --no-restore --verbosity normal
 
   docker-build:
     name: Docker image builds

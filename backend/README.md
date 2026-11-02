@@ -14,9 +14,10 @@ dotnet run --project src/NexusOMS.Api
 ```powershell
 dotnet user-secrets init --project src/NexusOMS.Api
 dotnet user-secrets set "Supabase:Url" "https://your-project.supabase.co" --project src/NexusOMS.Api
+dotnet user-secrets set "ConnectionStrings:Postgres" "Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require" --project src/NexusOMS.Api
 ```
 
-Do not commit keys. The API validates Supabase JWTs when `Supabase:Url` is configured.
+Do not commit keys or the database connection string. The API validates Supabase JWTs when `Supabase:Url` is configured.
 
 ## Module ownership
 
