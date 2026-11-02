@@ -12,6 +12,9 @@ concurrency:
   group: backend-ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -26,3 +29,17 @@ jobs:
       - run: dotnet restore NexusOMS.slnx
       - run: dotnet build NexusOMS.slnx --configuration Release --no-restore
       - run: dotnet test NexusOMS.slnx --configuration Release --no-build --verbosity normal
+
+  docker-build:
+    name: Docker image builds
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max

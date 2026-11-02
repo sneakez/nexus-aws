@@ -39,3 +39,6 @@ supabase/.temp/
 
 # Supabase CLI: file trạng thái sinh tự động
 supabase/functions-deploy-state.json
+
+# Không commit file patch/zip tạm
+*.patch

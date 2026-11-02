@@ -2,7 +2,8 @@
 
 | Thư mục | Nội dung | Còn hiệu lực? |
 |---|---|---|
-| `architecture/` | Cấu trúc dự án, hợp đồng nghiệp vụ, hướng chuyển từ mock sang backend thật | Có |
+| `architecture/` | Cấu trúc dự án, **pipeline CI/CD + Docker** (`cicd-pipeline.md`), hợp đồng nghiệp vụ, hướng chuyển từ mock sang backend thật | Có |
+| `guides/` | Hướng dẫn học Docker, CI/CD và tài liệu tham khảo | Có |
 | `api/` | Contract API và webhook | Có |
 | `product/` | Mô tả sản phẩm, prompt build | Có |
 | `design/` | Thiết kế, review responsive, ảnh chụp màn hình | Có |

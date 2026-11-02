@@ -1,0 +1,25 @@
+# Chạy toàn bộ hệ thống local bằng Docker:  docker compose up --build
+# Dừng:                                      docker compose down
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "5145:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Supabase__Url: ${SUPABASE_URL:-}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_DATA_MODE: ${VITE_DATA_MODE:-mock}
+        VITE_SUPABASE_URL: ${SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    ports:
+      - "5174:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
