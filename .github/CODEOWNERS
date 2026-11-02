@@ -1,0 +1,6 @@
+# Mặc định: chủ repo review tất cả. Thay bằng team/username thật khi mở rộng.
+*                     @sneakez
+/frontend/            @sneakez
+/backend/             @sneakez
+/supabase/            @sneakez
+/.github/             @sneakez
