@@ -1,11 +1,39 @@
 version: 2
 updates:
+  # Gom các bản cập nhật nhỏ vào 1 PR/tuần thay vì mỗi thư viện 1 PR.
+  # Bản major (đổi lớn, dễ vỡ) bị bỏ qua; nâng tay khi có thời gian kiểm thử.
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      frontend-deps:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: nuget
     directory: /backend
     schedule: { interval: weekly }
+    open-pull-requests-limit: 2
+    groups:
+      backend-deps:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 1
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 1
