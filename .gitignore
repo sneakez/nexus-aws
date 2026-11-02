@@ -28,3 +28,14 @@ coverage/
 *.sw?
 .env
 supabase/.temp/
+
+# Environment
+.env.*
+!.env.example
+
+# Công cụ AI / scaffold cục bộ (không phải source của dự án)
+.bolt/
+.agents/
+
+# Supabase CLI: file trạng thái sinh tự động
+supabase/functions-deploy-state.json

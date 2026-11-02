@@ -68,10 +68,10 @@ src/
   tests/         Unit và integration tests
 scripts/         Smoke test MVP và kiểm thử đăng nhập theo role
 supabase/        Schema và migration tham chiếu
-docs/            Tài liệu kỹ thuật và lịch sử kiểm chứng
+(../docs)       Tài liệu dùng chung ở thư mục gốc repo
 ```
 
-Runtime chỉ import screen qua `features/*`. Chi tiết ranh giới module và lộ trình Next.js nằm tại `docs/implementation/PROJECT_STRUCTURE.md`.
+Runtime chỉ import screen qua `features/*`. Chi tiết ranh giới module và lộ trình Next.js nằm tại `../docs/architecture/frontend-implementation/PROJECT_STRUCTURE.md`.
 
 ## Hướng AWS dự kiến
 
@@ -83,7 +83,7 @@ Runtime chỉ import screen qua `features/*`. Chi tiết ranh giới module và 
 - SSM Parameter Store cho secret và cấu hình
 - CloudWatch và X-Ray cho log, metric và trace
 
-Đây là prototype frontend. Simulator tạo 100 webhook local, ký HMAC-SHA256 và gọi mock store để chứng minh nguyên tắc chống oversell; nó không gửi request đến Shopee/TikTok. SQS, RDS, App Runner, xác minh HMAC phía server và atomic inventory phải được triển khai và kiểm chứng ở backend trước khi coi là production-ready. Contract mô phỏng nằm tại `docs/api/WEBHOOK_SIMULATOR_CONTRACT.md`.
+Đây là prototype frontend. Simulator tạo 100 webhook local, ký HMAC-SHA256 và gọi mock store để chứng minh nguyên tắc chống oversell; nó không gửi request đến Shopee/TikTok. SQS, RDS, App Runner, xác minh HMAC phía server và atomic inventory phải được triển khai và kiểm chứng ở backend trước khi coi là production-ready. Contract mô phỏng nằm tại `../docs/api/WEBHOOK_SIMULATOR_CONTRACT.md`.
 
 ## Quy tắc repository
 
