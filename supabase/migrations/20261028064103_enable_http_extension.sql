@@ -1,1 +1,0 @@
-CREATE EXTENSION IF NOT EXISTS http SCHEMA extensions;

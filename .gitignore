@@ -7,6 +7,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+bin/
+obj/
 dist
 dist-ssr
 artifacts/
@@ -21,5 +23,8 @@ coverage/
 *.ntvs*
 *.njsproj
 *.sln
+!backend/NexusOMS.sln
+!backend/NexusOMS.slnx
 *.sw?
 .env
+supabase/.temp/

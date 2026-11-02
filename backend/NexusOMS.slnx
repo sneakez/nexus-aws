@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NexusOMS.Api/NexusOMS.Api.csproj" />
+    <Project Path="src/NexusOMS.Contracts/NexusOMS.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/InventoryAndChannels/">
+    <Project Path="src/Modules/InventoryAndChannels/NexusOMS.InventoryAndChannels.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/OrderingAndFinance/">
+    <Project Path="src/Modules/OrderingAndFinance/NexusOMS.OrderingAndFinance.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NexusOMS.ApiTests/NexusOMS.ApiTests.csproj" />
+  </Folder>
+</Solution>
