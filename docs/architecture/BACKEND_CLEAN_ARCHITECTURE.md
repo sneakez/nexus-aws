@@ -13,7 +13,7 @@ Domain references no database/framework packages. Application references Domain 
 
 Public namespaces and HTTP routes/JSON remain compatible. Existing OrderSummary/OrderDetail are read models, not a completed Order aggregate. Create/cancel order, stock transaction coordination and domain state transitions are still Day 3 work. IInventoryContract is unchanged.
 
-Find Customers in OrderingAndFinance/Domain/CustomerModels.cs, Application/CustomerService.cs and Infrastructure/PostgresCustomerRepository.cs. Orders and Brands follow the same layout. CustomerName enforces the name rule even when services are called outside HTTP. Controllers retain HTTP input/error handling.
+Customer/order response models live in OrderingAndFinance/Application/Models, use cases in Application, and SQL repositories in Infrastructure. Query DTOs are not domain aggregates. CustomerName in Domain enforces the name rule even when services are called outside HTTP. Brand remains a simple domain record alongside BrandName. Controllers retain HTTP input/error handling.
 
 Authentication stays in API/Authorization. IProfileRoleReader separates claims transformation from its PostgreSQL adapter in API/Infrastructure; this cross-cutting host concern is not owned by either business module. Never move credentials into source; existing User Secrets configuration still applies.
 

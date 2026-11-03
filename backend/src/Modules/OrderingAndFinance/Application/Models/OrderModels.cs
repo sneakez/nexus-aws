@@ -1,5 +1,7 @@
 namespace NexusOMS.OrderingAndFinance;
 
+// Query response models, not domain aggregates.
+
 public sealed record OrderSummary(
     Guid Id,
     string OrderNumber,
