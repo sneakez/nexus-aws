@@ -8,8 +8,9 @@ public class ArchitectureTests
     [Fact]
     public void Inner_layers_do_not_reference_database_or_infrastructure()
     {
-        var assemblies = new[] { typeof(BrandName).Assembly, typeof(CustomerName).Assembly,
-            typeof(BrandService).Assembly, typeof(CustomerService).Assembly };
+        var assemblies = new[] { typeof(BrandName).Assembly, typeof(ProductInput).Assembly, typeof(WarehouseInput).Assembly,
+            typeof(CustomerName).Assembly, typeof(BrandService).Assembly, typeof(ProductService).Assembly,
+            typeof(WarehouseService).Assembly, typeof(CustomerService).Assembly };
         foreach (var assembly in assemblies)
             Assert.DoesNotContain(assembly.GetReferencedAssemblies(), reference =>
                 reference.Name == "Npgsql" || reference.Name!.EndsWith(".Infrastructure") ||
@@ -23,5 +24,7 @@ public class ArchitectureTests
         Assert.Equal(typeof(OrderService).Assembly, typeof(OrderDetail).Assembly);
         Assert.Equal(typeof(OrderService).Assembly, typeof(OrderLine).Assembly);
         Assert.Equal(typeof(CustomerService).Assembly, typeof(Customer).Assembly);
+        Assert.Equal(typeof(ProductService).Assembly, typeof(Product).Assembly);
+        Assert.Equal(typeof(WarehouseService).Assembly, typeof(Warehouse).Assembly);
     }
 }

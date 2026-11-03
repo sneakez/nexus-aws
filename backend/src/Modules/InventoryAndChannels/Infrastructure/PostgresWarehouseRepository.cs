@@ -3,65 +3,27 @@ using NpgsqlTypes;
 
 namespace NexusOMS.InventoryAndChannels;
 
-public sealed record Warehouse(
-    Guid Id,
-    string Code,
-    string Name,
-    string? Address,
-    int Priority,
-    bool IsActive,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
-
-public sealed record WarehouseInput(string Code, string Name, string? Address, int Priority)
+public sealed class PostgresWarehouseRepository(NpgsqlDataSource dataSource) : IWarehouseRepository
 {
-    public static WarehouseInput Normalize(string? code, string? name, string? address, int priority)
-    {
-        var normalizedCode = code?.Trim().ToUpperInvariant() ?? string.Empty;
-        var normalizedName = name?.Trim() ?? string.Empty;
-        var normalizedAddress = string.IsNullOrWhiteSpace(address) ? null : address.Trim();
-
-        if (normalizedCode.Length is 0 or > 50)
-            throw new ArgumentException("Warehouse code must contain 1 to 50 characters.");
-        if (normalizedName.Length is 0 or > 255)
-            throw new ArgumentException("Warehouse name must contain 1 to 255 characters.");
-        if (normalizedAddress?.Length > 500)
-            throw new ArgumentException("Warehouse address cannot exceed 500 characters.");
-        if (priority < 0)
-            throw new ArgumentException("Warehouse priority cannot be negative.");
-
-        return new WarehouseInput(normalizedCode, normalizedName, normalizedAddress, priority);
-    }
-}
-
-public sealed class WarehouseService(NpgsqlDataSource dataSource)
-{
-    public async Task<IReadOnlyList<Warehouse>> ListAsync(bool includeInactive, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Warehouse>> ListAsync(ActivityStatus status, CancellationToken cancellationToken = default)
     {
         const string sql = """
             select id, code, name, address, priority, is_active, created_at, updated_at
             from public.warehouses
-            where @includeInactive or is_active
+            where @isActive is null or is_active = @isActive
             order by priority, name
             """;
         await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("includeInactive", includeInactive);
+        command.Parameters.AddWithValue("isActive", NpgsqlDbType.Boolean, (object?)(status == ActivityStatus.All ? null : status == ActivityStatus.Active) ?? DBNull.Value);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
         var warehouses = new List<Warehouse>();
-        while (await reader.ReadAsync(cancellationToken))
-            warehouses.Add(Read(reader));
-
+        while (await reader.ReadAsync(cancellationToken)) warehouses.Add(Read(reader));
         return warehouses;
     }
 
     public async Task<Warehouse?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        const string sql = """
-            select id, code, name, address, priority, is_active, created_at, updated_at
-            from public.warehouses
-            where id = @id
-            """;
+        const string sql = "select id, code, name, address, priority, is_active, created_at, updated_at from public.warehouses where id = @id";
         await using var command = dataSource.CreateCommand(sql);
         command.Parameters.AddWithValue("id", id);
         return await ReadSingleAsync(command, cancellationToken);
@@ -76,8 +38,7 @@ public sealed class WarehouseService(NpgsqlDataSource dataSource)
             """;
         await using var command = dataSource.CreateCommand(sql);
         AddInputParameters(command, input);
-        return await SaveAsync(command, cancellationToken)
-            ?? throw new InvalidOperationException("Warehouse could not be created.");
+        return await SaveAsync(command, cancellationToken) ?? throw new InvalidOperationException("Warehouse could not be created.");
     }
 
     public async Task<Warehouse?> UpdateAsync(Guid id, WarehouseInput input, bool isActive, CancellationToken cancellationToken = default)
@@ -97,8 +58,7 @@ public sealed class WarehouseService(NpgsqlDataSource dataSource)
 
     public async Task<bool> DeactivateAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        const string sql = "update public.warehouses set is_active = false, updated_at = now() where id = @id";
-        await using var command = dataSource.CreateCommand(sql);
+        await using var command = dataSource.CreateCommand("update public.warehouses set is_active = false, updated_at = now() where id = @id");
         command.Parameters.AddWithValue("id", id);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
@@ -113,14 +73,8 @@ public sealed class WarehouseService(NpgsqlDataSource dataSource)
 
     private static async Task<Warehouse?> SaveAsync(NpgsqlCommand command, CancellationToken cancellationToken)
     {
-        try
-        {
-            return await ReadSingleAsync(command, cancellationToken);
-        }
-        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            throw new WarehouseCodeAlreadyExistsException();
-        }
+        try { return await ReadSingleAsync(command, cancellationToken); }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation) { throw new WarehouseCodeAlreadyExistsException(); }
     }
 
     private static async Task<Warehouse?> ReadSingleAsync(NpgsqlCommand command, CancellationToken cancellationToken)
@@ -130,14 +84,6 @@ public sealed class WarehouseService(NpgsqlDataSource dataSource)
     }
 
     private static Warehouse Read(NpgsqlDataReader reader) => new(
-        reader.GetGuid(0),
-        reader.GetString(1),
-        reader.GetString(2),
-        reader.IsDBNull(3) ? null : reader.GetString(3),
-        reader.GetInt32(4),
-        reader.GetBoolean(5),
-        reader.GetFieldValue<DateTimeOffset>(6),
-        reader.GetFieldValue<DateTimeOffset>(7));
+        reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3),
+        reader.GetInt32(4), reader.GetBoolean(5), reader.GetFieldValue<DateTimeOffset>(6), reader.GetFieldValue<DateTimeOffset>(7));
 }
-
-public sealed class WarehouseCodeAlreadyExistsException : Exception;

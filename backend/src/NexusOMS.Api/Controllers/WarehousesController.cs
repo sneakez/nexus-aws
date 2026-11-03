@@ -11,8 +11,13 @@ namespace NexusOMS.Api.Controllers;
 public sealed class WarehousesController(WarehouseService warehouses) : ControllerBase
 {
     [HttpGet]
-    public Task<IReadOnlyList<Warehouse>> List([FromQuery] bool includeInactive, CancellationToken cancellationToken) =>
-        warehouses.ListAsync(includeInactive, cancellationToken);
+    public async Task<ActionResult<IReadOnlyList<Warehouse>>> List([FromQuery] string? status, CancellationToken cancellationToken)
+    {
+        if (!ActivityStatusParser.TryParse(status, out var activityStatus))
+            return BadRequest(new { message = "status must be active, inactive, or all." });
+
+        return Ok(await warehouses.ListAsync(activityStatus, cancellationToken));
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Warehouse>> Get(Guid id, CancellationToken cancellationToken) =>

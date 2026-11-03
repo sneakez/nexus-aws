@@ -11,8 +11,13 @@ namespace NexusOMS.Api.Controllers;
 public sealed class ProductsController(ProductService products) : ControllerBase
 {
     [HttpGet]
-    public Task<IReadOnlyList<Product>> List([FromQuery] bool includeInactive, CancellationToken cancellationToken) =>
-        products.ListAsync(includeInactive, cancellationToken);
+    public async Task<ActionResult<IReadOnlyList<Product>>> List([FromQuery] string? status, CancellationToken cancellationToken)
+    {
+        if (!ActivityStatusParser.TryParse(status, out var activityStatus))
+            return BadRequest(new { message = "status must be active, inactive, or all." });
+
+        return Ok(await products.ListAsync(activityStatus, cancellationToken));
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Product>> Get(Guid id, CancellationToken cancellationToken) =>

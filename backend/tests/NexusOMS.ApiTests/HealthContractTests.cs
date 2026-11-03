@@ -1,3 +1,5 @@
+using NexusOMS.InventoryAndChannels;
+
 namespace NexusOMS.ApiTests;
 
 public sealed class HealthContractTests
@@ -67,5 +69,31 @@ public sealed class WarehouseInputTests
     public void Normalize_rejects_invalid_warehouse_data(string code, string name, int priority)
     {
         Assert.Throws<ArgumentException>(() => NexusOMS.InventoryAndChannels.WarehouseInput.Normalize(code, name, null, priority));
+    }
+}
+
+public sealed class ActivityStatusTests
+{
+    [Theory]
+    [InlineData(null, ActivityStatus.Active)]
+    [InlineData("active", ActivityStatus.Active)]
+    [InlineData("inactive", ActivityStatus.Inactive)]
+    public void Parse_maps_activity_status(string? status, ActivityStatus expected)
+    {
+        Assert.True(NexusOMS.InventoryAndChannels.ActivityStatusParser.TryParse(status, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Parse_all_removes_activity_filter()
+    {
+        Assert.True(NexusOMS.InventoryAndChannels.ActivityStatusParser.TryParse("all", out var actual));
+        Assert.Equal(ActivityStatus.All, actual);
+    }
+
+    [Fact]
+    public void Parse_rejects_unknown_status()
+    {
+        Assert.False(NexusOMS.InventoryAndChannels.ActivityStatusParser.TryParse("archived", out _));
     }
 }
