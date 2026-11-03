@@ -9,6 +9,10 @@ public static class OrderingAndFinanceModuleExtensions
         services.AddScoped<IOrderRepository, PostgresOrderRepository>();
         services.AddScoped<CustomerService>();
         services.AddScoped<OrderService>();
+        services.AddScoped<IOrderFeeRepository, PostgresOrderFeeRepository>();
+        services.AddScoped<OrderFeeService>();
+        services.AddScoped<IReturnRepository, PostgresReturnRepository>();
+        services.AddScoped<ReturnService>();
         return services;
     }
 }
