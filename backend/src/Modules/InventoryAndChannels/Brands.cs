@@ -6,6 +6,7 @@ public sealed record Brand(Guid Id, string Name, DateTimeOffset CreatedAt, DateT
 
 public sealed class BrandService(NpgsqlDataSource dataSource)
 {
+    //Take all brands from the database and return them as a list of Brand objects
     public async Task<IReadOnlyList<Brand>> ListAsync(CancellationToken cancellationToken = default)
     {
         const string sql = "select id, name, created_at, updated_at from public.brands order by name";
@@ -19,6 +20,7 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
         return brands;
     }
 
+    //Get brand by id from the database and return it as a Brand object, or null if not found
     public async Task<Brand?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         const string sql = "select id, name, created_at, updated_at from public.brands where id = @id";
@@ -28,6 +30,7 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
         return await reader.ReadAsync(cancellationToken) ? Read(reader) : null;
     }
 
+    // Create a new brand by using name return id, name, created_at, updated_at as a Brand object
     public async Task<Brand> CreateAsync(string name, CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -38,6 +41,8 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
         return await SaveAsync(sql, name, cancellationToken);
     }
 
+    // Update an existing brand by using id and name return id, name, created_at, updated_at
+    // as a Brand object or null if not found
     public async Task<Brand?> UpdateAsync(Guid id, string name, CancellationToken cancellationToken = default)
     {
         const string sql = """
@@ -52,6 +57,7 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
         return await SaveAsync(command, cancellationToken);
     }
 
+    // Delete an existing brand by using id return true if deleted, false if not found
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         const string sql = "delete from public.brands where id = @id";
@@ -60,6 +66,7 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
+    // Save a brand to the database and return it as a Brand object, or throw an exception if it could not be created
     private async Task<Brand> SaveAsync(string sql, string name, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql);
@@ -68,6 +75,7 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
             ?? throw new InvalidOperationException("Brand could not be created.");
     }
 
+    // Save a brand to the database and return it as a Brand object, or null if not found
     private static async Task<Brand?> SaveAsync(NpgsqlCommand command, CancellationToken cancellationToken)
     {
         try
