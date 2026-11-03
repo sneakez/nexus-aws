@@ -8,6 +8,7 @@ public static class InventoryAndChannelsModuleExtensions
     {
         services.AddSingleton<BrandService>();
         services.AddSingleton<ProductService>();
+        services.AddSingleton<WarehouseService>();
         return services;
     }
 }
