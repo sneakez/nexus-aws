@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-
+using Microsoft.AspNetCore.Authentication;
 namespace NexusOMS.Api.Authorization;
 
 public static class NexusAuthorizationExtensions
@@ -11,6 +11,7 @@ public static class NexusAuthorizationExtensions
 
         if (!string.IsNullOrWhiteSpace(supabaseUrl))
         {
+            services.AddTransient<IClaimsTransformation,ProfileClaimsTransformation>();
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
@@ -24,7 +25,9 @@ public static class NexusAuthorizationExtensions
         }
         else
         {
-            services.AddAuthentication();
+            services
+                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                .AddJwtBearer();
         }
 
         services.AddAuthorization(options =>
