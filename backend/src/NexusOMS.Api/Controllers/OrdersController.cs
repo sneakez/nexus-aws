@@ -11,6 +11,13 @@ namespace NexusOMS.Api.Controllers;
 public sealed class OrdersController(OrderService orders)
     : ControllerBase
 {
+    [HttpGet("{id:guid}/history")]
+    public async Task<ActionResult<IReadOnlyList<OrderStatusEntry>>> History(
+        Guid id, CancellationToken cancellationToken)
+    {
+        var history = await orders.GetHistoryAsync(id, cancellationToken);
+        return history is null ? NotFound() : Ok(history);
+    }
     [HttpGet]
     public Task<IReadOnlyList<OrderSummary>> List(
         CancellationToken cancellationToken)

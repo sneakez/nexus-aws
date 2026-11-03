@@ -4,6 +4,30 @@ namespace NexusOMS.OrderingAndFinance;
 
 public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrderRepository
 {
+    public async Task<IReadOnlyList<OrderStatusEntry>?> GetHistoryAsync(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            select exists(select 1 from public.orders where id = @id);
+            select id, from_status::text, to_status::text, note, created_by, created_at
+            from public.order_status_log where order_id = @id
+            order by created_at, id;
+            """;
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        if (!reader.GetBoolean(0)) return null;
+        await reader.NextResultAsync(cancellationToken);
+        var entries = new List<OrderStatusEntry>();
+        while (await reader.ReadAsync(cancellationToken))
+            entries.Add(new OrderStatusEntry(
+                reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                reader.GetFieldValue<DateTimeOffset>(5)));
+        return entries;
+    }
     public async Task<IReadOnlyList<OrderSummary>> ListAsync(
         CancellationToken cancellationToken = default)
     {
