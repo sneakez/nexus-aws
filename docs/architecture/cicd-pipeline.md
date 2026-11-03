@@ -18,19 +18,22 @@ flowchart LR
   CI -->|CI xanh + review| Merge[Merge vào main]
   Merge --> CD
   subgraph CD [CD: chạy khi vào main hoặc gắn tag vX.Y.Z]
-    C[Build image] --> D[Gắn tag: sha, main, latest, semver]
+    G[Cổng kiểm tra: chạy lại Frontend CI + Backend CI] -->|cả hai xanh| C[Build image]
+    C --> D[Gắn tag: sha, main, latest, semver]
     D --> E[(ghcr.io)]
   end
   E -.->|sau này| F[Deploy: AWS / server khác]
 ```
 
+**Cổng kiểm tra:** `cd.yml` gọi lại chính hai workflow CI (cơ chế `workflow_call`). Nếu test đỏ thì bước `publish` không chạy và **không có image nào được đẩy lên**. Nhờ vậy ghcr.io chỉ chứa image đã qua test.
+
 ## Các file liên quan
 
 | File | Vai trò |
 |---|---|
-| `.github/workflows/frontend-ci.yml` | Kiểm tra frontend, rồi build thử Docker image |
-| `.github/workflows/backend-ci.yml` | Kiểm tra backend, rồi build thử Docker image |
-| `.github/workflows/cd.yml` | Build và đẩy image frontend + backend lên ghcr.io |
+| `.github/workflows/frontend-ci.yml` | Kiểm tra frontend. Chạy trên PR, và được `cd.yml` gọi lại làm cổng kiểm tra |
+| `.github/workflows/backend-ci.yml` | Kiểm tra backend. Chạy trên PR, và được `cd.yml` gọi lại làm cổng kiểm tra |
+| `.github/workflows/cd.yml` | Chạy CI làm cổng, rồi build và đẩy image frontend + backend lên ghcr.io |
 | `backend/Dockerfile`, `frontend/Dockerfile` | Công thức đóng gói từng phần |
 | `frontend/nginx.conf` | Cấu hình web server phục vụ frontend |
 | `docker-compose.yml` | Chạy cả hệ thống ở máy local bằng một lệnh |

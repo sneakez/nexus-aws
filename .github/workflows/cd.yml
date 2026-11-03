@@ -1,6 +1,7 @@
 name: CD - Publish images
 
-# Chạy khi code vào main (sau khi PR đã qua CI) hoặc khi gắn tag phiên bản vX.Y.Z.
+# Chạy khi code vào main hoặc khi gắn tag phiên bản vX.Y.Z.
+# Quy trình: chạy lại toàn bộ test (CI) -> chỉ khi CẢ HAI xanh mới build và đẩy image.
 # Sản phẩm: Docker image đẩy lên GitHub Container Registry (ghcr.io).
 # Chưa triển khai lên AWS: khi sẵn sàng chỉ cần thêm job "deploy" dùng image này.
 on:
@@ -18,8 +19,17 @@ permissions:
   packages: write
 
 jobs:
+  # Cổng kiểm tra: dùng lại đúng workflow CI của PR
+  frontend-ci:
+    name: Frontend CI
+    uses: ./.github/workflows/frontend-ci.yml
+  backend-ci:
+    name: Backend CI
+    uses: ./.github/workflows/backend-ci.yml
+
   publish:
     name: Publish ${{ matrix.name }}
+    needs: [frontend-ci, backend-ci]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
