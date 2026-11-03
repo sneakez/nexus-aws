@@ -22,3 +22,4 @@ public sealed record WarehouseInput(string Code, string Name, string? Address, i
 }
 
 public sealed class WarehouseCodeAlreadyExistsException : Exception;
+public sealed class WarehouseNotFoundException : Exception;

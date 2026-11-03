@@ -20,3 +20,4 @@ public sealed record ProductInput(string Sku, string Name, decimal CostPrice)
 
 public sealed class ProductSkuAlreadyExistsException : Exception;
 public sealed class BrandNotFoundException : Exception;
+public sealed class ProductNotFoundException : Exception;

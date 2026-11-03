@@ -11,6 +11,12 @@ public static class InventoryAndChannelsModuleExtensions
         services.AddScoped<ProductService>();
         services.AddScoped<IWarehouseRepository, PostgresWarehouseRepository>();
         services.AddScoped<WarehouseService>();
+        services.AddScoped<IWarehouseBinRepository, PostgresWarehouseBinRepository>();
+        services.AddScoped<WarehouseBinService>();
+        services.AddScoped<IInventoryRepository, PostgresInventoryRepository>();
+        services.AddScoped<InventoryService>();
+        services.AddScoped<IChannelRepository, PostgresChannelRepository>();
+        services.AddScoped<ChannelService>();
         return services;
     }
 }

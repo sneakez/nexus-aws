@@ -72,6 +72,54 @@ public sealed class WarehouseInputTests
     }
 }
 
+public sealed class WarehouseBinInputTests
+{
+    [Fact]
+    public void Normalize_trims_and_canonicalizes_bin_code()
+    {
+        Assert.Equal("A-01-02", NexusOMS.InventoryAndChannels.WarehouseBinInput.Normalize("  a-01-02  ").Code);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("  ")]
+    public void Normalize_rejects_empty_bin_code(string? code)
+    {
+        Assert.Throws<ArgumentException>(() => NexusOMS.InventoryAndChannels.WarehouseBinInput.Normalize(code));
+    }
+}
+
+public sealed class InventoryInputTests
+{
+    [Fact]
+    public void Positive_quantity_rejects_zero_or_negative()
+    {
+        Assert.Throws<ArgumentException>(() => NexusOMS.InventoryAndChannels.InventoryInput.PositiveQuantity(0));
+        Assert.Throws<ArgumentException>(() => NexusOMS.InventoryAndChannels.InventoryInput.PositiveQuantity(-1));
+    }
+
+    [Fact]
+    public void Adjustment_accepts_both_directions_except_zero()
+    {
+        Assert.Equal(-2, NexusOMS.InventoryAndChannels.InventoryInput.AdjustmentQuantity(-2));
+        Assert.Equal(2, NexusOMS.InventoryAndChannels.InventoryInput.AdjustmentQuantity(2));
+        Assert.Throws<ArgumentException>(() => NexusOMS.InventoryAndChannels.InventoryInput.AdjustmentQuantity(0));
+    }
+}
+
+public sealed class ChannelConnectionInputTests
+{
+    [Fact]
+    public void Normalize_canonicalizes_channel_input()
+    {
+        var input = NexusOMS.InventoryAndChannels.ChannelConnectionInput.Normalize(" SHOPEE ", " Shop One ", " CONNECTED ");
+        Assert.Equal("shopee", input.Type); Assert.Equal("Shop One", input.AccountName); Assert.Equal("connected", input.Status);
+    }
+
+    [Fact]
+    public void Normalize_rejects_unknown_channel_type() => Assert.Throws<ArgumentException>(() => NexusOMS.InventoryAndChannels.ChannelConnectionInput.Normalize("amazon", "Shop", "connected"));
+}
+
 public sealed class ActivityStatusTests
 {
     [Theory]
