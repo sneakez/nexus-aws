@@ -2,9 +2,7 @@ using Npgsql;
 
 namespace NexusOMS.InventoryAndChannels;
 
-public sealed record Brand(Guid Id, string Name, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
-
-public sealed class BrandService(NpgsqlDataSource dataSource)
+public sealed class PostgresBrandRepository(NpgsqlDataSource dataSource) : IBrandRepository
 {
     //Take all brands from the database and return them as a list of Brand objects
     public async Task<IReadOnlyList<Brand>> ListAsync(CancellationToken cancellationToken = default)
@@ -92,17 +90,3 @@ public sealed class BrandService(NpgsqlDataSource dataSource)
     private static Brand Read(NpgsqlDataReader reader) => new(
         reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2), reader.GetFieldValue<DateTimeOffset>(3));
 }
-
-public static class BrandName
-{
-    public static string Normalize(string? value)
-    {
-        var name = value?.Trim() ?? string.Empty;
-        if (name.Length is 0 or > 120)
-            throw new ArgumentException("Brand name must contain 1 to 120 characters.");
-
-        return name;
-    }
-}
-
-public sealed class BrandAlreadyExistsException : Exception;

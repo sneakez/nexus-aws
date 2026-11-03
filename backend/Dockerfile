@@ -10,6 +10,12 @@ COPY src/NexusOMS.Api/NexusOMS.Api.csproj                                       
 COPY src/NexusOMS.Contracts/NexusOMS.Contracts.csproj                                       src/NexusOMS.Contracts/
 COPY src/Modules/InventoryAndChannels/NexusOMS.InventoryAndChannels.csproj                  src/Modules/InventoryAndChannels/
 COPY src/Modules/OrderingAndFinance/NexusOMS.OrderingAndFinance.csproj                      src/Modules/OrderingAndFinance/
+COPY src/Modules/InventoryAndChannels/Domain/ src/Modules/InventoryAndChannels/Domain/
+COPY src/Modules/InventoryAndChannels/Application/ src/Modules/InventoryAndChannels/Application/
+COPY src/Modules/InventoryAndChannels/Infrastructure/ src/Modules/InventoryAndChannels/Infrastructure/
+COPY src/Modules/OrderingAndFinance/Domain/ src/Modules/OrderingAndFinance/Domain/
+COPY src/Modules/OrderingAndFinance/Application/ src/Modules/OrderingAndFinance/Application/
+COPY src/Modules/OrderingAndFinance/Infrastructure/ src/Modules/OrderingAndFinance/Infrastructure/
 RUN dotnet restore src/NexusOMS.Api/NexusOMS.Api.csproj
 
 COPY src/ src/
