@@ -1,12 +1,12 @@
 name: Backend CI
 
+# Chạy trên mỗi PR. Trên main/tag, cd.yml gọi lại workflow này (workflow_call)
+# làm "cổng kiểm tra" trước khi phát hành image, nên không cần trigger push ở đây.
 on:
-  push:
-    branches: [main]
-    paths: ['backend/**', '.github/workflows/backend-ci.yml']
   pull_request:
     branches: [main]
     paths: ['backend/**', '.github/workflows/backend-ci.yml']
+  workflow_call:
 
 concurrency:
   group: backend-ci-${{ github.ref }}
@@ -33,6 +33,8 @@ jobs:
   docker-build:
     name: Docker image builds
     needs: build-and-test
+    # Chỉ build thử trên PR. Trên main, cd.yml sẽ build thật rồi đẩy image.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
