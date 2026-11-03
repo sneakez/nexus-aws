@@ -7,6 +7,8 @@ public static class InventoryAndChannelsModuleExtensions
     {
         services.AddScoped<IBrandRepository, PostgresBrandRepository>();
         services.AddScoped<BrandService>();
+        services.AddSingleton<ProductService>();
+        services.AddSingleton<WarehouseService>();
         return services;
     }
 }
