@@ -11,7 +11,7 @@ public static class NexusAuthorizationExtensions
 
         if (!string.IsNullOrWhiteSpace(supabaseUrl))
         {
-            services.AddTransient<IClaimsTransformation,ProfileClaimsTransformation>();
+            services.AddTransient<IClaimsTransformation, ProfileClaimsTransformation>();
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {

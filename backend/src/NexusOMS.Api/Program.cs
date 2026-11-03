@@ -16,6 +16,9 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(postgresConnectionStr
 builder.Services.AddInventoryAndChannelsModule();
 builder.Services.AddOrderingAndFinanceModule();
 
+builder.Services.AddScoped<NexusOMS.Api.Authorization.IProfileRoleReader,
+    NexusOMS.Api.Infrastructure.PostgresProfileRoleReader>();
+
 var app = builder.Build();
 
 app.MapOpenApi();

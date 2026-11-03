@@ -7,8 +7,26 @@
   <Folder Name="/src/Modules/InventoryAndChannels/">
     <Project Path="src/Modules/InventoryAndChannels/NexusOMS.InventoryAndChannels.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/InventoryAndChannels/Application/">
+    <Project Path="src/Modules/InventoryAndChannels/Application/NexusOMS.InventoryAndChannels.Application.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/InventoryAndChannels/Domain/">
+    <Project Path="src/Modules/InventoryAndChannels/Domain/NexusOMS.InventoryAndChannels.Domain.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/InventoryAndChannels/Infrastructure/">
+    <Project Path="src/Modules/InventoryAndChannels/Infrastructure/NexusOMS.InventoryAndChannels.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/OrderingAndFinance/">
     <Project Path="src/Modules/OrderingAndFinance/NexusOMS.OrderingAndFinance.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/OrderingAndFinance/Application/">
+    <Project Path="src/Modules/OrderingAndFinance/Application/NexusOMS.OrderingAndFinance.Application.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/OrderingAndFinance/Domain/">
+    <Project Path="src/Modules/OrderingAndFinance/Domain/NexusOMS.OrderingAndFinance.Domain.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/OrderingAndFinance/Infrastructure/">
+    <Project Path="src/Modules/OrderingAndFinance/Infrastructure/NexusOMS.OrderingAndFinance.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NexusOMS.ApiTests/NexusOMS.ApiTests.csproj" />

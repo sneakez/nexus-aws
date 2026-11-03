@@ -1,10 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
-using Npgsql;
 namespace NexusOMS.Api.Authorization;
 
 public sealed class ProfileClaimsTransformation(
-    NpgsqlDataSource dataSource) : IClaimsTransformation
+    IProfileRoleReader profiles) : IClaimsTransformation
 {
     public async Task<ClaimsPrincipal> TransformAsync(
         ClaimsPrincipal principal)
@@ -13,7 +12,8 @@ public sealed class ProfileClaimsTransformation(
             return principal;
 
         // Không tin role ứng dụng có sẵn trong token.
-        var result = principal.Clone();
+        var result = new ClaimsPrincipal(
+            principal.Identities.Select(identity => identity.Clone()));
 
         foreach (var identity in result.Identities)
         {
@@ -28,16 +28,7 @@ public sealed class ProfileClaimsTransformation(
         if (!Guid.TryParse(userIdValue, out var userId))
             return result;
 
-        const string sql = """
-            select role::text
-            from public.profiles
-            where id = @id and is_active = true
-            """;
-
-        await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("id", userId);
-
-        var role = await command.ExecuteScalarAsync() as string;
+        var role = await profiles.GetActiveRoleAsync(userId);
 
         if (role is not ("admin" or "manager" or "warehouse"))
             return result;
