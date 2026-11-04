@@ -28,6 +28,7 @@ if (!actorExists)
         "Lab chưa có profile Dev 2 đang hoạt động.");
 
 Console.WriteLine("PASS: kết nối database lab và tìm thấy profile Dev 2.");
+await OrderInventoryIntegrationChecks.RunAsync(dataSource, actorId);
 var productId = Guid.NewGuid();
 var warehouseId = Guid.NewGuid();
 var suffix = Guid.NewGuid().ToString("N");
