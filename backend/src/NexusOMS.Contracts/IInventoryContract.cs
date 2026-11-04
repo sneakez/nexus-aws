@@ -2,10 +2,25 @@ namespace NexusOMS.Contracts;
 
 public interface IInventoryContract
 {
-    Task<InventoryReservationResult> ReserveAsync(InventoryReservationRequest request, CancellationToken cancellationToken = default);
-    Task ReleaseAsync(InventoryReleaseRequest request, CancellationToken cancellationToken = default);
-    Task CommitOutboundAsync(InventoryCommitRequest request, CancellationToken cancellationToken = default);
-    Task ReturnInboundAsync(InventoryReturnRequest request, CancellationToken cancellationToken = default);
+    Task<InventoryReservationResult> ReserveAsync(
+        InventoryReservationRequest request,
+        InventoryTransactionContext context,
+        CancellationToken cancellationToken = default);
+
+    Task ReleaseAsync(
+        InventoryReleaseRequest request,
+        InventoryTransactionContext context,
+        CancellationToken cancellationToken = default);
+
+    Task CommitOutboundAsync(
+        InventoryCommitRequest request,
+        InventoryTransactionContext context,
+        CancellationToken cancellationToken = default);
+
+    Task ReturnInboundAsync(
+        InventoryReturnRequest request,
+        InventoryTransactionContext context,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record InventoryReservationRequest(Guid ProductId, Guid WarehouseId, decimal Quantity, string IdempotencyKey, Guid OrderId);
