@@ -15,7 +15,8 @@ public sealed record OrderLine(
     string ProductName,
     decimal Quantity,
     decimal UnitPrice,
-    decimal LineTotal);
+    decimal LineTotal,
+    decimal? UnitCost = null);
 
 public sealed record OrderDetail(
     Guid Id,
