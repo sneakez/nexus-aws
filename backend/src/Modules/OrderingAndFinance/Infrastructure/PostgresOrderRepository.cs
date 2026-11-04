@@ -67,7 +67,7 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
         where id = @id;
 
         select id, product_id, product_sku, product_name,
-               quantity, unit_price, line_total
+               quantity, unit_price, line_total, unit_cost
         from public.order_items
         where order_id = @id
         order by id;
@@ -101,13 +101,14 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
         while (await reader.ReadAsync(cancellationToken))
         {
             items.Add(new OrderLine(
-                reader.GetGuid(0),
-                reader.IsDBNull(1) ? null : reader.GetGuid(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.GetString(3),
-                reader.GetDecimal(4),
-                reader.GetDecimal(5),
-                reader.GetDecimal(6)));
+                 reader.GetGuid(0),
+                 reader.IsDBNull(1) ? null : reader.GetGuid(1),
+                 reader.IsDBNull(2) ? null : reader.GetString(2),
+                 reader.GetString(3),
+                 reader.GetDecimal(4),
+                 reader.GetDecimal(5),
+                 reader.GetDecimal(6),
+                 reader.IsDBNull(7) ? null : reader.GetDecimal(7)));
         }
 
         return order;
