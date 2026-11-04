@@ -4,8 +4,9 @@
 - Contract da nhan InventoryTransactionContext.
 - Dev 1 da ban giao PostgresInventoryContract va PostgresProductCatalogContract (PR #33).
 - Da kiem tra repository huy/xuat voi Inventory that trong Docker lab.
-- Chua noi reserve vao production CreateAsync; chua mo HTTP endpoint huy/xuat.
-- Sau merge: 66 unit test pass; lab kiem tra catalog/reserve/release/outbound, replay, rollback va concurrency.
+- Da noi reserve vao CreateAsync; da dang ky DI va mo HTTP create/confirm/process/cancel/ship.
+- Xem docs/guides/DEV2_NGAY3_4_HOC_LAI.md de hoc lai va demo.
+- 66 unit test pass; repository lab va HTTP/Postman da kiem tra catalog/reserve/release/outbound, replay, rollback va concurrency.
 
 ## Transaction
 - Order mo connection va transaction.

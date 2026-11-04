@@ -5,7 +5,7 @@ name: Backend CI
 on:
   pull_request:
     branches: [main]
-    paths: ['backend/**', '.github/workflows/backend-ci.yml']
+    paths: ['backend/**', 'supabase/**', 'postman/**', '.github/workflows/backend-ci.yml']
   workflow_call:
 
 concurrency:
@@ -30,9 +30,41 @@ jobs:
       - run: dotnet build src/NexusOMS.Api/NexusOMS.Api.csproj --configuration Release --no-restore
       - run: dotnet test tests/NexusOMS.ApiTests/NexusOMS.ApiTests.csproj --configuration Release --no-restore --verbosity normal
 
+  integration-lab:
+    name: Order and Inventory HTTP integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: nexus-lab-only
+          POSTGRES_DB: nexus_lab
+        ports: ['25439:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nexus_lab"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Bootstrap isolated lab and apply every migration
+        env:
+          LAB_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$LAB_CONTAINER" psql -U postgres -d nexus_lab -v ON_ERROR_STOP=1 < backend/tools/lab-auth-bootstrap.sql
+          for migration in supabase/migrations/*.sql; do
+            docker exec -i "$LAB_CONTAINER" psql -U postgres -d nexus_lab -v ON_ERROR_STOP=1 < "$migration"
+          done
+          docker exec -i "$LAB_CONTAINER" psql -U postgres -d nexus_lab -v ON_ERROR_STOP=1 < backend/tools/lab-actor-seed.sql
+      - run: dotnet run --project backend/tools/NexusOMS.OrderCreationLab/NexusOMS.OrderCreationLab.csproj --configuration Release
+      - run: dotnet run --project backend/tools/NexusOMS.ApiLab/NexusOMS.ApiLab.csproj --configuration Release
+
   docker-build:
     name: Docker image builds
-    needs: build-and-test
+    needs: [build-and-test, integration-lab]
     # Chỉ build thử trên PR. Trên main, cd.yml sẽ build thật rồi đẩy image.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

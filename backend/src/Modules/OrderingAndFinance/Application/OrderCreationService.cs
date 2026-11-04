@@ -9,6 +9,7 @@ public sealed class OrderCreationService(
         Guid actorId,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         if (actorId == Guid.Empty)
             throw new ArgumentException("Người tạo đơn không hợp lệ.");
 

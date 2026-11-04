@@ -8,15 +8,16 @@ namespace NexusOMS.Api.Controllers;
 [ApiController]
 [Route("api/v1/orders/{orderId:guid}/fees")]
 [Authorize(Policy = Policies.ManagerOrAdmin)]
-public sealed class OrderFeesController(OrderFeeService fees)
+public sealed class OrderFeesController(OrderFeeService fees, OrderService orders)
     : ControllerBase
 {
     [HttpGet]
-    public Task<IReadOnlyList<OrderFee>> List(
+    public async Task<ActionResult<IReadOnlyList<OrderFee>>> List(
         Guid orderId,
         CancellationToken cancellationToken)
     {
-        return fees.ListAsync(orderId, cancellationToken);
+        if (await orders.GetAsync(orderId, cancellationToken) is null) return NotFound();
+        return Ok(await fees.ListAsync(orderId, cancellationToken));
     }
     [HttpPost]
     public async Task<ActionResult<OrderFee>> Create(
