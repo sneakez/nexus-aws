@@ -22,7 +22,10 @@ public static class OrderingAndFinanceModuleExtensions
         services.AddScoped<IOrderShippingRepository, PostgresOrderShippingRepository>();
         services.AddScoped<OrderShippingService>();
         services.AddScoped<IOrderProgressRepository, PostgresOrderProgressRepository>();
+        services.AddScoped<OrderContributionService>();
         services.AddScoped<OrderProgressService>();
+        services.AddScoped<IJournalRepository, PostgresJournalRepository>();
+        services.AddScoped<JournalService>();
         return services;
     }
 }

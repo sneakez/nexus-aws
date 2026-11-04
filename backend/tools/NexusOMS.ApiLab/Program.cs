@@ -36,6 +36,9 @@ internal static class ApiLabProgram
         var firstProduct = pair[0]; var emptyProduct = pair[1];
         var lastProduct = Guid.NewGuid();
         var legacyId = Guid.NewGuid();
+        var journalId = Guid.NewGuid();
+        var debitAccountId = Guid.NewGuid();
+        var creditAccountId = Guid.NewGuid();
         var users = new[] { adminId, managerId, warehouseUserId, inactiveId };
         var products = new[] { productId, firstProduct, emptyProduct, lastProduct, webhookProductId };
         var signingKey = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(64));
@@ -355,6 +358,330 @@ internal static class ApiLabProgram
             await Post("/api/v1/returns", returnBody with { Id=Guid.NewGuid(), OrderId=missing }, 404);
             Check(await Number("select count(*) from public.audit_logs where entity_id=@id and action='fee.created'", ("id", feeId)) == 1, "fee audit once");
             Console.WriteLine("PASS HTTP day 4: fee validation/read/audit/conflict, finance role and missing resources.");
+            await Post(
+    $"/api/v1/orders/{orderId}/fees",
+    new
+    {
+        id = Guid.NewGuid(),
+        feeType = "ads",
+        amount = 20000m
+    },
+    201);
+
+            var contribution = await Send(
+                HttpMethod.Get,
+                $"/api/v1/orders/{orderId}/contribution",
+                null,
+                manager,
+                200);
+
+            Check(
+                contribution.GetProperty("cm1").GetDecimal() == 110000m,
+                "CM1: revenue minus cost");
+
+            Check(
+                contribution.GetProperty("cm2").GetDecimal() == 100000m,
+                "CM2: subtract operating fees");
+
+            Check(
+                contribution.GetProperty("cm3").GetDecimal() == 80000m,
+                "CM3: subtract ads once");
+
+            await Send(
+                HttpMethod.Get,
+                $"/api/v1/orders/{orderId}/contribution",
+                null,
+                worker,
+                403);
+
+            await Send(
+                HttpMethod.Get,
+                $"/api/v1/orders/{missing}/contribution",
+                null,
+                manager,
+                404);
+
+            Console.WriteLine(
+                "PASS HTTP day 5: CM1-CM3, advertising allocation and role.");
+            try
+            {
+                await Exec(
+                    "update public.order_items set unit_cost = null where id = @id",
+                    ("id", itemId));
+
+                var incomplete = await Send(
+                    HttpMethod.Get,
+                    $"/api/v1/orders/{orderId}/contribution",
+                    null,
+                    manager,
+                    200);
+
+                Check(
+                    !incomplete.GetProperty("hasCompleteCost").GetBoolean(),
+                    "Missing cost is reported");
+
+                foreach (var field in new[] { "costOfGoods", "cm1", "cm2", "cm3" })
+                {
+                    Check(
+                        incomplete.GetProperty(field).ValueKind == JsonValueKind.Null,
+                        $"Missing cost returns null for {field}");
+                }
+            }
+            finally
+            {
+                await Exec(
+                    "update public.order_items set unit_cost = 60000 where id = @id",
+                    ("id", itemId));
+            }
+
+            Console.WriteLine(
+                "PASS HTTP day 5: incomplete cost returns null contribution.");
+            await Exec(
+    """
+    insert into public.ledger_accounts(id, code, name)
+    values
+        (@debitId, @debitCode, 'Lab debit account'),
+        (@creditId, @creditCode, 'Lab credit account');
+    """,
+    ("debitId", debitAccountId),
+    ("debitCode", $"DEBIT-{run}"),
+    ("creditId", creditAccountId),
+    ("creditCode", $"CREDIT-{run}"));
+
+            var journalRequest = new CreateJournalRequest(
+                journalId,
+                $"JOURNAL-{run}",
+                "manual",
+                null,
+                [
+                    new JournalLine(debitAccountId, 100000m, 0m),
+        new JournalLine(creditAccountId, 0m, 100000m)
+                ]);
+
+            var journalCreated = await Post(
+                "/api/v1/journals",
+                journalRequest,
+                201);
+
+            Check(
+                journalCreated.GetProperty("id").GetGuid() == journalId,
+                "Created journal ID");
+
+            Check(
+                journalCreated.GetProperty("lines").GetArrayLength() == 2,
+                "Created journal has two lines");
+
+            Console.WriteLine(
+                "PASS HTTP day 5: balanced journal creation.");
+            var journalReplay = await Post(
+    "/api/v1/journals",
+    journalRequest,
+    200);
+
+            Check(
+                journalReplay.GetProperty("id").GetGuid() == journalId,
+                "Journal replay keeps the same ID");
+
+            Check(
+                journalReplay.GetProperty("postedAt").GetString()
+                    == journalCreated.GetProperty("postedAt").GetString(),
+                "Journal replay keeps postedAt");
+
+            Check(
+                await Number(
+                    "select count(*) from public.journal_entries where id=@id",
+                    ("id", journalId)) == 1,
+                "Journal header is written once");
+
+            Check(
+                await Number(
+                    "select count(*) from public.journal_lines where journal_entry_id=@id",
+                    ("id", journalId)) == 2,
+                "Journal lines are written once");
+
+            Check(
+                await Number(
+                    """
+        select count(*) from public.audit_logs
+        where entity_id=@id
+          and entity_type='journal_entries'
+          and action='journal.posted'
+        """,
+                    ("id", journalId)) == 1,
+                "Journal audit is written once");
+
+            Console.WriteLine(
+                "PASS HTTP day 5: journal replay does not duplicate data.");
+            var changedJournal = journalRequest with
+            {
+                Lines =
+    [
+        new JournalLine(debitAccountId, 120000m, 0m),
+        new JournalLine(creditAccountId, 0m, 120000m)
+    ]
+            };
+
+            await Post("/api/v1/journals", changedJournal, 409);
+
+            var unbalancedJournal = journalRequest with
+            {
+                Lines =
+                [
+                    new JournalLine(debitAccountId, 100000m, 0m),
+        new JournalLine(creditAccountId, 0m, 90000m)
+                ]
+            };
+
+            await Post("/api/v1/journals", unbalancedJournal, 400);
+
+            await Post(
+                "/api/v1/journals",
+                journalRequest,
+                403,
+                worker);
+
+            await Send(
+                HttpMethod.Get,
+                $"/api/v1/journals/{journalId}",
+                null,
+                worker,
+                403);
+
+            var journalRead = await Send(
+                HttpMethod.Get,
+                $"/api/v1/journals/{journalId}",
+                null,
+                manager,
+                200);
+
+            Check(
+                journalRead.GetProperty("lines")[0]
+                    .GetProperty("debitAmount").GetDecimal()
+                    + journalRead.GetProperty("lines")[1]
+                    .GetProperty("debitAmount").GetDecimal() == 100000m,
+                "Conflicting request does not change journal amounts");
+
+            await Send(
+                HttpMethod.Get,
+                $"/api/v1/journals/{Guid.NewGuid()}",
+                null,
+                manager,
+                404);
+
+            Console.WriteLine(
+                "PASS HTTP day 5: journal conflict, validation and authorization.");
+            await Exec(
+    """
+    delete from public.audit_logs
+    where entity_id=@id
+      and entity_type='journal_entries'
+      and action='journal.posted';
+
+    delete from public.journal_entries where id=@id;
+    """,
+    ("id", journalId));
+
+            await FailAuditAction(
+                "journal.posted",
+                async () =>
+                {
+                    await Post("/api/v1/journals", journalRequest, 500);
+                });
+
+            Check(
+                await Number(
+                    "select count(*) from public.journal_entries where id=@id",
+                    ("id", journalId)) == 0,
+                "Audit failure rolls back journal header");
+
+            Check(
+                await Number(
+                    "select count(*) from public.journal_lines where journal_entry_id=@id",
+                    ("id", journalId)) == 0,
+                "Audit failure rolls back journal lines");
+
+            Check(
+                await Number(
+                    """
+        select count(*) from public.audit_logs
+        where entity_id=@id
+          and entity_type='journal_entries'
+          and action='journal.posted'
+        """,
+                    ("id", journalId)) == 0,
+                "Failed journal has no audit");
+
+            await Post("/api/v1/journals", journalRequest, 201);
+
+            Console.WriteLine(
+                "PASS HTTP day 5: journal audit failure rolls back; retry succeeds.");
+            await Exec(
+    """
+    delete from public.audit_logs
+    where entity_id=@id
+      and entity_type='journal_entries'
+      and action='journal.posted';
+
+    delete from public.journal_entries where id=@id;
+    """,
+    ("id", journalId));
+
+            var journalResponses = await Task.WhenAll(
+                Enumerable.Range(0, 2).Select(async _ =>
+                {
+                    using var message = new HttpRequestMessage(
+                        HttpMethod.Post,
+                        "/api/v1/journals")
+                    {
+                        Content = JsonContent.Create(journalRequest)
+                    };
+
+                    message.Headers.Authorization =
+                        new AuthenticationHeaderValue("Bearer", manager);
+
+                    using var response = await client.SendAsync(message);
+
+                    return (
+                        Status: (int)response.StatusCode,
+                        Body: await response.Content
+                            .ReadFromJsonAsync<JsonElement>());
+                }));
+
+            Check(
+                journalResponses.Count(result => result.Status == 201) == 1
+                    && journalResponses.Count(result => result.Status == 200) == 1,
+                "Concurrent journal requests produce one create and one replay");
+
+            Check(
+                journalResponses.All(result =>
+                    result.Body.GetProperty("id").GetGuid() == journalId),
+                "Concurrent journal requests return the same ID");
+
+            Check(
+                await Number(
+                    "select count(*) from public.journal_entries where id=@id",
+                    ("id", journalId)) == 1,
+                "Concurrent journal has one header");
+
+            Check(
+                await Number(
+                    "select count(*) from public.journal_lines where journal_entry_id=@id",
+                    ("id", journalId)) == 2,
+                "Concurrent journal has two lines");
+
+            Check(
+                await Number(
+                    """
+        select count(*) from public.audit_logs
+        where entity_id=@id
+          and entity_type='journal_entries'
+          and action='journal.posted'
+        """,
+                    ("id", journalId)) == 1,
+                "Concurrent journal has one audit");
+
+            Console.WriteLine(
+                "PASS HTTP day 5: concurrent journal requests do not duplicate data.");
             if (args.Contains("--postman"))
                 await PostmanLabRunner.RunAsync(root, client, manager, worker, warehouseId, productId, run);
             Console.WriteLine($"PASS HTTP TOTAL: {assertions} assertions; real ASP.NET pipeline/JWT/profile/database, local lab signing key only.");
@@ -374,6 +701,9 @@ internal static class ApiLabProgram
                 delete from public.channel_connections where id=@channelConnection;
                 delete from public.stock_transactions where product_id in (select product_id from lab_products_to_remove);
                 delete from public.audit_logs where entity_id in (select id from lab_orders_to_remove) or actor_id=any(@users);
+                delete from public.journal_entries where id=@journalId;
+                delete from public.ledger_accounts
+                where id in (@debitAccountId, @creditAccountId);
                 delete from public.return_requests where order_id in (select id from lab_orders_to_remove);
                 delete from public.orders where id in (select id from lab_orders_to_remove);
                 delete from public.inventory_items where product_id in (select product_id from lab_products_to_remove);
@@ -386,6 +716,9 @@ internal static class ApiLabProgram
             cleanup.Parameters.AddWithValue("products", products);
             cleanup.Parameters.AddWithValue("warehouse", warehouseId);
             cleanup.Parameters.AddWithValue("channelConnection", channelConnectionId);
+            cleanup.Parameters.AddWithValue("journalId", journalId);
+            cleanup.Parameters.AddWithValue("debitAccountId", debitAccountId);
+            cleanup.Parameters.AddWithValue("creditAccountId", creditAccountId);
             await cleanup.ExecuteNonQueryAsync();
             await transaction.CommitAsync();
             Console.WriteLine("PASS: HTTP lab fixtures cleaned up.");
