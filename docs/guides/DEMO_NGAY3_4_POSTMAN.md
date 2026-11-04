@@ -90,3 +90,21 @@ Tài liệu API đầy đủ: docs/api/ORDER_DAY3_DAY4_CONTRACT.md.
 Tài liệu giải thích code: docs/guides/DEV2_NGAY3_4_HOC_LAI.md.
 
 OpenAPI của API đang chạy: http://localhost:5155/openapi/v1.json (JSON, không phải Swagger UI).
+
+## E. Dừng API nếu trợ lý đã chạy ẩn ở cổng 5155
+
+Trong PowerShell, đoạn sau chỉ dừng process API đúng đường dẫn của project:
+
+```powershell
+$labListener = Get-NetTCPConnection -LocalPort 5155 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($labListener) {
+    $labApiProcess = Get-Process -Id $labListener.OwningProcess
+    if ($labApiProcess.ProcessName -eq 'NexusOMS.Api' -and
+        $labApiProcess.Path -like 'D:\noxus-aws\backend\src\NexusOMS.Api\bin\*\net10.0\NexusOMS.Api.exe') {
+        Stop-Process -Id $labApiProcess.Id
+    }
+}
+```
+
+Sau đó bạn có thể chạy lại bằng dotnet run trong terminal của mình và dùng Ctrl+C
+để dừng bình thường. Không cần tắt tất cả dotnet hoặc Visual Studio.

@@ -7,6 +7,7 @@
 - Confirm -> process -> ship có endpoint, role, khóa đơn, lịch sử/audit và receipt.
 - Cancel gọi release; ship gọi outbound trong context transaction chung.
 - Legacy pending chưa từng giữ hàng được hủy mà không giả tạo stock mutation.
+- Regression lab xác nhận đơn mới thiếu reservation bị từ chối, không được dùng ngoại lệ legacy.
 - DI và mapping 400/401/403/404/409; lỗi không dự kiến trả ProblemDetails 500 không lộ stack.
 - Ngày 4 Dev 2: return request/items và fee breakdown đã kiểm tra qua HTTP thật.
 - GET fees của đơn không tồn tại trả 404. Warehouse không xem finance/unitCost chi tiết đơn.
@@ -52,7 +53,8 @@ DEMO cố định được giữ lại để người dùng chạy Postman thủ
 ## CI
 
 Backend CI thêm job PostgreSQL cô lập và hai lab; Docker build đợi unit + integration.
-Kết quả GitHub thực tế cần xem trên PR; kết quả local không tự đồng nghĩa CI xanh.
+PR #35 tại commit 628c34c đã xanh cả unit, HTTP integration và Docker build.
+Các commit tiếp theo phải xem check tương ứng trên PR; local pass không tự đồng nghĩa CI xanh.
 
 ## Học lại
 
