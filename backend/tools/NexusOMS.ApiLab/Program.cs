@@ -4,8 +4,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using NexusOMS.Api.Controllers;
+using NexusOMS.Api.Integration;
 using NexusOMS.OrderingAndFinance;
 using Npgsql;
 
@@ -27,12 +31,13 @@ internal static class ApiLabProgram
         var run = "http-" + Guid.NewGuid().ToString("N");
         var adminId = Guid.NewGuid(); var managerId = Guid.NewGuid(); var warehouseUserId = Guid.NewGuid(); var inactiveId = Guid.NewGuid();
         var warehouseId = Guid.NewGuid(); var productId = Guid.NewGuid();
+        var webhookProductId = Guid.NewGuid(); var channelConnectionId = Guid.NewGuid();
         var pair = new[] { Guid.NewGuid(), Guid.NewGuid() }.Order().ToArray();
         var firstProduct = pair[0]; var emptyProduct = pair[1];
         var lastProduct = Guid.NewGuid();
         var legacyId = Guid.NewGuid();
         var users = new[] { adminId, managerId, warehouseUserId, inactiveId };
-        var products = new[] { productId, firstProduct, emptyProduct, lastProduct };
+        var products = new[] { productId, firstProduct, emptyProduct, lastProduct, webhookProductId };
         var signingKey = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(64));
         string Token(Guid id, string? issuer = null, bool expired = false) => new JwtSecurityTokenHandler().WriteToken(
             new JwtSecurityToken(issuer ?? LabApiFactory.Issuer, "authenticated",
@@ -41,7 +46,7 @@ internal static class ApiLabProgram
                 new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256)));
         var manager = Token(managerId); var worker = Token(warehouseUserId);
         await using var source = NpgsqlDataSource.Create(ConnectionString);
-        await using var factory = new LabApiFactory(root, ConnectionString, signingKey);
+        await using var factory = new LabApiFactory(root, ConnectionString, signingKey, managerId);
         using var client = factory.CreateClient();
 
         async Task Exec(string sql, params (string Name, object Value)[] parameters)
@@ -74,6 +79,15 @@ internal static class ApiLabProgram
         }
         Task<JsonElement> Post(string path, object body, int status = 200, string? token = null) =>
             Send(HttpMethod.Post, path, body, token ?? manager, status);
+        async Task<(int Status, string Body)> SendWebhook(string json)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/webhooks/simulator/{channelConnectionId}")
+            { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            var hash = HMACSHA256.HashData(Encoding.UTF8.GetBytes("api-lab-webhook-secret"), Encoding.UTF8.GetBytes(json));
+            request.Headers.Add("X-Nexus-Signature", "sha256=" + Convert.ToHexString(hash).ToLowerInvariant());
+            using var response = await client.SendAsync(request);
+            return ((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+        }
         CreateOrderRequest Request(string suffix, decimal quantity = 2m, Guid? product = null) => new(
             $"{run}:{suffix}", $"{run}-{suffix}", null, warehouseId, 10000m, 30000m,
             [new(product ?? productId, quantity, 100000m)]);
@@ -102,6 +116,20 @@ internal static class ApiLabProgram
             try { await test(); }
             finally { await Exec($"drop trigger if exists {name} on public.audit_logs; drop function if exists public.{name}();"); }
         }
+        async Task FailAuditAction(string action, Func<Task> test)
+        {
+            var name = "lab_audit_" + Guid.NewGuid().ToString("N");
+            await Exec($$"""
+                create function public.{{name}}() returns trigger language plpgsql as $lab$
+                begin
+                  if new.action = '{{action}}' then raise exception 'lab injected audit failure'; end if;
+                  return new;
+                end; $lab$;
+                create trigger {{name}} before insert on public.audit_logs for each row execute function public.{{name}}();
+                """);
+            try { await test(); }
+            finally { await Exec($"drop trigger if exists {name} on public.audit_logs; drop function if exists public.{name}();"); }
+        }
 
         try
         {
@@ -117,6 +145,9 @@ internal static class ApiLabProgram
                     insert into public.inventory_items(warehouse_id,product_id,stock) values(@warehouse,@id,@stock);
                     """, ("id", id), ("sku", $"HTTP-{id:N}"), ("warehouse", warehouseId),
                     ("stock", id == emptyProduct ? 0m : id == lastProduct ? 1m : 100m));
+            await Exec("update public.inventory_items set stock=101 where warehouse_id=@warehouse and product_id=@product", ("warehouse", warehouseId), ("product", webhookProductId));
+            await Exec("insert into public.channel_connections(id,type,account_name,status) values(@id,'shopee',@name,'connected')", ("id", channelConnectionId), ("name", run));
+            await Exec("insert into public.channel_sku_mappings(channel_connection_id,product_id,channel_sku) values(@connection,@product,@sku)", ("connection", channelConnectionId), ("product", webhookProductId), ("sku", $"WEBHOOK-{run}"));
 
             var create = Request("main");
             await Send(HttpMethod.Post, "/api/v1/orders", create, null, 401);
@@ -146,12 +177,29 @@ internal static class ApiLabProgram
             await Post("/api/v1/orders", Request("negative", -1m), 400);
             Console.WriteLine("PASS HTTP: atomic create/reserve, stable replay/snapshot and invalid input/reference handling.");
 
+            var receiptRequest = new InventoryChangeRequest(warehouseId, firstProduct, 5m, $"{run}:receipt");
+            var receipt = await Post("/api/v1/inventory/receipts", receiptRequest, token: worker);
+            var receiptTransactionId = receipt.GetProperty("transactionId").GetGuid();
+            Check(await Number("select stock from public.inventory_items where warehouse_id=@warehouse and product_id=@product", ("warehouse", warehouseId), ("product", firstProduct)) == 105m, "receipt changes stock");
+            Check(await Number("select count(*) from public.audit_logs where action='inventory.received' and entity_id=@id and actor_id=@actor", ("id", receiptTransactionId), ("actor", warehouseUserId)) == 1, "receipt creates warehouse audit");
+            await Post("/api/v1/inventory/receipts", receiptRequest, 409, worker);
+            Check(await Number("select count(*) from public.stock_transactions where idempotency_key=@key", ("key", receiptRequest.IdempotencyKey!)) == 1, "receipt replay writes one ledger row");
+            var adjustmentRequest = new InventoryChangeRequest(warehouseId, firstProduct, -3m, $"{run}:adjustment");
+            var adjustment = await Post("/api/v1/inventory/adjustments", adjustmentRequest, token: worker);
+            var adjustmentTransactionId = adjustment.GetProperty("transactionId").GetGuid();
+            Check(await Number("select count(*) from public.audit_logs where action='inventory.adjusted' and entity_id=@id and actor_id=@actor", ("id", adjustmentTransactionId), ("actor", warehouseUserId)) == 1, "adjustment creates warehouse audit");
+            var failedReceipt = new InventoryChangeRequest(warehouseId, firstProduct, 1m, $"{run}:receipt-audit-fail");
+            await FailAuditAction("inventory.received", async () => { await Post("/api/v1/inventory/receipts", failedReceipt, 500, worker); });
+            Check(await Number("select stock from public.inventory_items where warehouse_id=@warehouse and product_id=@product", ("warehouse", warehouseId), ("product", firstProduct)) == 102m, "receipt audit failure rolls back stock");
+            Check(await Number("select count(*) from public.stock_transactions where idempotency_key=@key", ("key", failedReceipt.IdempotencyKey!)) == 0, "receipt audit failure rolls back ledger");
+            Console.WriteLine("PASS HTTP day 5: manual receipt/adjustment audit, replay and rollback.");
+
             var shortage = Request("partial-shortage") with { Items = [new(firstProduct, 1m, 100m), new(emptyProduct, 1m, 100m)] };
             await Post("/api/v1/orders", shortage, 409);
             Check(await Number("select reserved from public.inventory_items where product_id=@id", ("id", firstProduct)) == 0, "partial reserve rolled back");
             Check(await Number("select count(*) from public.orders where idempotency_key=@key", ("key", shortage.IdempotencyKey)) == 0, "shortage order rolled back");
             Check(await Number("select count(*) from public.inventory_reservations where product_id=@id", ("id", firstProduct)) == 0, "shortage reservation rolled back");
-            Check(await Number("select count(*) from public.stock_transactions where product_id=@id", ("id", firstProduct)) == 0, "shortage ledger rolled back");
+            Check(await Number("select count(*) from public.stock_transactions where product_id=@id and reference_type='order'", ("id", firstProduct)) == 0, "shortage order ledger rolled back");
             var auditRequest = Request("audit-fail");
             await FailAudit("order.created", auditRequest.OrderNumber,
                 async () => { await Post("/api/v1/orders", auditRequest, 500); });
@@ -225,6 +273,36 @@ internal static class ApiLabProgram
             Check(await Number("select reserved from public.inventory_items where product_id=@id", ("id", lastProduct)) == 1, "no oversell");
             Console.WriteLine("PASS HTTP: concurrent create idempotency and two orders racing for last unit.");
 
+            string WebhookBody(int number) => JsonSerializer.Serialize(new
+            {
+                eventId = $"{run}-webhook-{number}", eventType = "order.ready_to_ship",
+                externalOrderId = $"{run}-webhook-order-{number}", warehouseId,
+                tax = 0m, shippingFee = 0m,
+                items = new[] { new { channelSku = $"WEBHOOK-{run}", quantity = 1m, unitPrice = 100000m } }
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            var webhookBodies = Enumerable.Range(1, 100).Select(WebhookBody).ToArray();
+            var webhookResults = new List<(int Status, string Body)>();
+            foreach (var body in webhookBodies) webhookResults.Add(await SendWebhook(body));
+            var webhookFailures = string.Join("; ", webhookResults.Where(x => x.Status != 202).Take(3).Select(x => $"{x.Status}:{x.Body}"));
+            Check(webhookResults.All(x => x.Status == 202), $"100 valid HMAC webhooks accepted without oversell ({webhookFailures})");
+            var webhookOrderCount = await Number("select count(*) from public.orders where order_number like @prefix", ("prefix", run + "-webhook-order-%"));
+            Check(webhookOrderCount == 100, $"100 webhook events create 100 orders (orders={webhookOrderCount})");
+            Check(await Number("select reserved from public.inventory_items where warehouse_id=@warehouse and product_id=@product", ("warehouse", warehouseId), ("product", webhookProductId)) == 100, "100 webhook reservations never exceed stock");
+            var replayWebhook = await SendWebhook(webhookBodies[0]);
+            Check(replayWebhook.Status == 200, "webhook replay returns stable result");
+            Check(await Number("select count(*) from public.orders where order_number like @prefix", ("prefix", run + "-webhook-order-%")) == 100, "webhook replay creates no duplicate order");
+
+            var retryBody = WebhookBody(101);
+            await Exec("""
+                insert into public.webhook_delivery_logs(channel_connection_id,event_type,idempotency_key,payload,status,retry_count,retryable,next_retry_at)
+                values(@connection,'order.ready_to_ship',@key,@payload::jsonb,'failed',1,true,now())
+                """, ("connection", channelConnectionId), ("key", $"webhook:{channelConnectionId:N}:{run}-webhook-101"), ("payload", retryBody));
+            using (var scope = factory.Services.CreateScope())
+                await scope.ServiceProvider.GetRequiredService<WebhookSimulatorService>().RetryDueAsync();
+            Check(await Number("select count(*) from public.orders where order_number like @prefix", ("prefix", run + "-webhook-order-%")) == 101, "retry worker processes due webhook once");
+            Check(await Number("select count(*) from public.webhook_delivery_logs where channel_connection_id=@connection and status='processed'", ("connection", channelConnectionId)) == 101, "retry worker marks delivery processed");
+            Console.WriteLine("PASS HTTP day 5: 100 HMAC webhooks, replay safety, no oversell and retry worker.");
+
             var returnId = Guid.NewGuid();
             var returnBody = new CreateReturnRequest(returnId, orderId, "Damaged", [new(itemId, 1m)]);
             await Post("/api/v1/returns", returnBody, 403, worker);
@@ -286,24 +364,28 @@ internal static class ApiLabProgram
             await using var connection = await source.OpenConnectionAsync();
             await using var transaction = await connection.BeginTransactionAsync();
             await using var cleanup = new NpgsqlCommand("""
+                create temporary table lab_products_to_remove on commit drop as
+                    select product_id from public.inventory_items where warehouse_id=@warehouse;
                 create temporary table lab_orders_to_remove on commit drop as
-                    select id from public.orders where idempotency_key like @prefix or id=@legacy;
+                    select id from public.orders where assigned_warehouse_id=@warehouse or id=@legacy;
                 delete from public.inventory_operation_receipts
                     where payload ->> 'OrderId' in (select id::text from lab_orders_to_remove);
-                delete from public.stock_transactions where reference_type='order' and reference_id in (select id from lab_orders_to_remove);
-                delete from public.audit_logs where actor_id=any(@users);
+                delete from public.webhook_delivery_logs where channel_connection_id=@channelConnection;
+                delete from public.channel_connections where id=@channelConnection;
+                delete from public.stock_transactions where product_id in (select product_id from lab_products_to_remove);
+                delete from public.audit_logs where entity_id in (select id from lab_orders_to_remove) or actor_id=any(@users);
                 delete from public.return_requests where order_id in (select id from lab_orders_to_remove);
                 delete from public.orders where id in (select id from lab_orders_to_remove);
-                delete from public.inventory_items where warehouse_id=@warehouse and product_id=any(@products);
-                delete from public.products where id=any(@products);
+                delete from public.inventory_items where product_id in (select product_id from lab_products_to_remove);
+                delete from public.products where id in (select product_id from lab_products_to_remove);
                 delete from public.warehouses where id=@warehouse;
                 delete from auth.users where id=any(@users);
                 """, connection, transaction);
-            cleanup.Parameters.AddWithValue("prefix", run + "%");
             cleanup.Parameters.AddWithValue("legacy", legacyId);
             cleanup.Parameters.AddWithValue("users", users);
             cleanup.Parameters.AddWithValue("products", products);
             cleanup.Parameters.AddWithValue("warehouse", warehouseId);
+            cleanup.Parameters.AddWithValue("channelConnection", channelConnectionId);
             await cleanup.ExecuteNonQueryAsync();
             await transaction.CommitAsync();
             Console.WriteLine("PASS: HTTP lab fixtures cleaned up.");

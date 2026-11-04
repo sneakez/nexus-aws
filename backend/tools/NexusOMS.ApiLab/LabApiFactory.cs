@@ -15,7 +15,7 @@ using Npgsql;
 namespace NexusOMS.ApiLab;
 
 // This override exists only in a separate lab executable. It is not referenced by the API.
-internal sealed class LabApiFactory(string root, string connectionString, SecurityKey key)
+internal sealed class LabApiFactory(string root, string connectionString, SecurityKey key, Guid systemActorId)
     : WebApplicationFactory<global::Program>
 {
     internal const string Issuer = "nexus-local-api-lab";
@@ -27,7 +27,9 @@ internal sealed class LabApiFactory(string root, string connectionString, Securi
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Postgres"] = connectionString,
-            ["Supabase:Url"] = "https://unused.invalid"
+            ["Supabase:Url"] = "https://unused.invalid",
+            ["WebhookSimulator:Secret"] = "api-lab-webhook-secret",
+            ["WebhookSimulator:SystemActorId"] = systemActorId.ToString()
         }));
         builder.ConfigureServices(services =>
         {
