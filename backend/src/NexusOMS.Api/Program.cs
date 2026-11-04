@@ -9,6 +9,8 @@ builder.Services
     .AddControllers()
     .AddApplicationPart(typeof(Program).Assembly);
 builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
+builder.Services.AddScoped<NexusOMS.Api.Infrastructure.OrderWorkflowExceptionFilter>();
 builder.Services.AddNexusAuthorization(builder.Configuration);
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres must be configured.");
@@ -21,6 +23,7 @@ builder.Services.AddScoped<NexusOMS.Api.Authorization.IProfileRoleReader,
 
 var app = builder.Build();
 
+app.UseExceptionHandler();
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.UseAuthentication();

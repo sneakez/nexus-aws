@@ -118,6 +118,22 @@ public sealed class PostgresInventoryContract : IInventoryContract
     private static async Task ResolveOrderReservationsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid orderId, string operationKey, string operation, string state, CancellationToken cancellationToken)
     {
         var reservations = await ReadReservationsAsync(connection, transaction, orderId, cancellationToken);
+        if (reservations.Count == 0)
+        {
+            if (operation == "release")
+            {
+                const string legacySql = """
+                    select exists (
+                        select 1 from public.orders o
+                        where o.id = @orderId and o.status = 'pending' and o.creation_request is null
+                          and not exists (select 1 from public.inventory_reservations r where r.order_id = o.id))
+                    """;
+                await using var legacy = new NpgsqlCommand(legacySql, connection, transaction);
+                legacy.Parameters.AddWithValue("orderId", orderId);
+                if (await legacy.ExecuteScalarAsync(cancellationToken) is true) return;
+            }
+            throw new InventoryReservationNotFoundException("Đơn hàng không còn tồn giữ để xử lý.");
+        }
         foreach (var reservation in reservations)
         {
             var updateSql = operation == "release"
@@ -151,7 +167,6 @@ public sealed class PostgresInventoryContract : IInventoryContract
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var reservations = new List<Reservation>();
         while (await reader.ReadAsync(cancellationToken)) reservations.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetDecimal(2)));
-        if (reservations.Count == 0) throw new InventoryReservationNotFoundException("Đơn hàng không còn tồn giữ để xử lý.");
         return reservations;
     }
 

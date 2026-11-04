@@ -1,11 +1,13 @@
 using Npgsql;
 using NpgsqlTypes;
+using NexusOMS.Contracts;
 
 namespace NexusOMS.OrderingAndFinance;
 
 public sealed class PostgresOrderCreationRepository(
     NpgsqlDataSource dataSource,
-    IOrderRepository orders) : IOrderCreationRepository
+    IOrderRepository orders,
+    IInventoryContract inventory) : IOrderCreationRepository
 {
     public async Task<CreateOrderResult?> FindReplayAsync(
     CreateOrderRequest request,
@@ -191,6 +193,28 @@ public sealed class PostgresOrderCreationRepository(
 
         return reader.GetGuid(0);
     }
+    private static async Task ValidateReferencesAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        CreateOrderRequest request, CancellationToken cancellationToken)
+    {
+        // Reference locks prevent deletion while inserting the referencing order.
+        await using (var warehouse = new NpgsqlCommand(
+            "select id from public.warehouses where id = @id and is_active for share", connection, transaction))
+        {
+            warehouse.Parameters.AddWithValue("id", request.WarehouseId);
+            if (await warehouse.ExecuteScalarAsync(cancellationToken) is null)
+                throw new ArgumentException("Kho không tồn tại hoặc đã ngừng hoạt động.");
+        }
+        if (request.CustomerId is { } customerId)
+        {
+            await using var customer = new NpgsqlCommand(
+                "select id from public.customers where id = @id for key share", connection, transaction);
+            customer.Parameters.AddWithValue("id", customerId);
+            if (await customer.ExecuteScalarAsync(cancellationToken) is null)
+                throw new ArgumentException("Khách hàng không tồn tại.");
+        }
+    }
+
     public async Task<CreateOrderResult> CreateAsync(
     CreateOrderRequest request,
     PreparedOrder prepared,
@@ -222,6 +246,8 @@ public sealed class PostgresOrderCreationRepository(
             {
                 try
                 {
+                    await ValidateReferencesAsync(connection, transaction, request, cancellationToken);
+
                     await InsertOrderAsync(
                         connection, transaction, orderId,
                         request, prepared, cancellationToken);
@@ -229,6 +255,17 @@ public sealed class PostgresOrderCreationRepository(
                     await InsertItemsAsync(
                         connection, transaction, orderId,
                         prepared, cancellationToken);
+
+                    var context = new InventoryTransactionContext(transaction);
+                    foreach (var item in prepared.Items.OrderBy(item => item.ProductId))
+                    {
+                        var reservation = await inventory.ReserveAsync(
+                            new InventoryReservationRequest(item.ProductId, request.WarehouseId,
+                                item.Quantity, $"reserve:{orderId:N}:{item.ProductId:N}", orderId),
+                            context, cancellationToken);
+                        if (reservation.ReservedQuantity != item.Quantity)
+                            throw new InvalidOperationException("Số lượng giữ tồn không khớp số lượng đặt.");
+                    }
 
                     await InsertHistoryAndAuditAsync(
                         connection, transaction, orderId,
@@ -240,6 +277,13 @@ public sealed class PostgresOrderCreationRepository(
                 {
                     throw new OrderCreationConflictException(
                         "Mã đơn hàng đã tồn tại.");
+                }
+                catch (PostgresException exception) when (
+                    exception.SqlState == PostgresErrorCodes.ForeignKeyViolation
+                    && exception.ConstraintName is "orders_customer_id_fkey" or "orders_assigned_warehouse_id_fkey"
+                        or "order_items_product_id_fkey")
+                {
+                    throw new ArgumentException("Khách hàng, kho hoặc sản phẩm không còn tồn tại.", exception);
                 }
             }
 

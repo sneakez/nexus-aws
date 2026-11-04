@@ -44,3 +44,6 @@ supabase/functions-deploy-state.json
 
 # Không commit file patch/zip tạm
 *.patch
+
+# Private Postman values generated for local demos
+postman/environments/*.local.json

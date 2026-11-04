@@ -4,6 +4,7 @@ public static class CreateOrderValidator
 {
     public static void Validate(CreateOrderRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey)
             || request.IdempotencyKey.Length > 120)
             throw new ArgumentException(

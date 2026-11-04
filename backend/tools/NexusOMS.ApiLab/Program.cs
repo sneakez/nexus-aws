@@ -1,0 +1,319 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.IdentityModel.Tokens;
+using NexusOMS.OrderingAndFinance;
+using Npgsql;
+
+namespace NexusOMS.ApiLab;
+
+internal static class ApiLabProgram
+{
+    private const string ConnectionString = "Host=127.0.0.1;Port=25439;Database=nexus_lab;Username=postgres;Password=nexus-lab-only";
+    private static int assertions;
+    private static void Check(bool condition, string name)
+    {
+        if (!condition) throw new InvalidOperationException($"FAIL: {name}");
+        assertions++;
+    }
+
+    public static async Task Main(string[] args)
+    {
+        var root = FindRoot();
+        var run = "http-" + Guid.NewGuid().ToString("N");
+        var adminId = Guid.NewGuid(); var managerId = Guid.NewGuid(); var warehouseUserId = Guid.NewGuid(); var inactiveId = Guid.NewGuid();
+        var warehouseId = Guid.NewGuid(); var productId = Guid.NewGuid();
+        var pair = new[] { Guid.NewGuid(), Guid.NewGuid() }.Order().ToArray();
+        var firstProduct = pair[0]; var emptyProduct = pair[1];
+        var lastProduct = Guid.NewGuid();
+        var legacyId = Guid.NewGuid();
+        var users = new[] { adminId, managerId, warehouseUserId, inactiveId };
+        var products = new[] { productId, firstProduct, emptyProduct, lastProduct };
+        var signingKey = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(64));
+        string Token(Guid id, string? issuer = null, bool expired = false) => new JwtSecurityTokenHandler().WriteToken(
+            new JwtSecurityToken(issuer ?? LabApiFactory.Issuer, "authenticated",
+                [new Claim("sub", id.ToString()), new Claim("app_role", "admin")],
+                DateTime.UtcNow.AddHours(-2), expired ? DateTime.UtcNow.AddHours(-1) : DateTime.UtcNow.AddHours(1),
+                new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256)));
+        var manager = Token(managerId); var worker = Token(warehouseUserId);
+        await using var source = NpgsqlDataSource.Create(ConnectionString);
+        await using var factory = new LabApiFactory(root, ConnectionString, signingKey);
+        using var client = factory.CreateClient();
+
+        async Task Exec(string sql, params (string Name, object Value)[] parameters)
+        {
+            await using var command = source.CreateCommand(sql);
+            foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
+            await command.ExecuteNonQueryAsync();
+        }
+        async Task<decimal> Number(string sql, params (string Name, object Value)[] parameters)
+        {
+            await using var command = source.CreateCommand(sql);
+            foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
+            return Convert.ToDecimal(await command.ExecuteScalarAsync());
+        }
+        async Task<JsonElement> Send(HttpMethod method, string path, object? body, string? token, int expected)
+        {
+            using var request = new HttpRequestMessage(method, path);
+            if (body is not null) request.Content = JsonContent.Create(body);
+            if (token is not null) request.Headers.Authorization = new("Bearer", token);
+            using var response = await client.SendAsync(request);
+            var text = await response.Content.ReadAsStringAsync();
+            Check((int)response.StatusCode == expected, $"{method} {path}: expected {expected}, got {(int)response.StatusCode}: {text}");
+            if (expected == 500)
+                Check(!text.Contains("lab injected") && !text.Contains("Npgsql"), "500 response hides internal exception details");
+            if (expected == 201 && path == "/api/v1/orders")
+                Check(response.Headers.Location is not null, "created order has Location header");
+            if (string.IsNullOrWhiteSpace(text)) return default;
+            using var document = JsonDocument.Parse(text);
+            return document.RootElement.Clone();
+        }
+        Task<JsonElement> Post(string path, object body, int status = 200, string? token = null) =>
+            Send(HttpMethod.Post, path, body, token ?? manager, status);
+        CreateOrderRequest Request(string suffix, decimal quantity = 2m, Guid? product = null) => new(
+            $"{run}:{suffix}", $"{run}-{suffix}", null, warehouseId, 10000m, 30000m,
+            [new(product ?? productId, quantity, 100000m)]);
+        async Task State(Guid id, string status, decimal stock, decimal reserved, Guid? product = null)
+        {
+            var json = await Send(HttpMethod.Get, $"/api/v1/orders/{id}", null, manager, 200);
+            Check(json.GetProperty("status").GetString() == status, $"state {status}");
+            Check(await Number("select stock from public.inventory_items where warehouse_id=@w and product_id=@p", ("w", warehouseId), ("p", product ?? productId)) == stock, "physical stock");
+            Check(await Number("select reserved from public.inventory_items where warehouse_id=@w and product_id=@p", ("w", warehouseId), ("p", product ?? productId)) == reserved, "reserved stock");
+        }
+        async Task FailAudit(string action, string orderNumber, Func<Task> test)
+        {
+            var name = "lab_audit_" + Guid.NewGuid().ToString("N");
+            // Names and comparison values are generated by this executable, never external input.
+            await Exec($$"""
+                create function public.{{name}}() returns trigger language plpgsql as $lab$
+                begin
+                  if new.action = '{{action}}' and exists (
+                    select 1 from public.orders where (id = new.entity_id or id::text = new.metadata ->> 'orderId') and order_number = '{{orderNumber}}') then
+                    raise exception 'lab injected audit failure';
+                  end if;
+                  return new;
+                end; $lab$;
+                create trigger {{name}} before insert on public.audit_logs for each row execute function public.{{name}}();
+                """);
+            try { await test(); }
+            finally { await Exec($"drop trigger if exists {name} on public.audit_logs; drop function if exists public.{name}();"); }
+        }
+
+        try
+        {
+            foreach (var (id, role, active) in new[] { (adminId, "admin", true), (managerId, "manager", true), (warehouseUserId, "warehouse", true), (inactiveId, "manager", false) })
+                await Exec("""
+                    insert into auth.users(id, email, raw_user_meta_data) values (@id, @email, '{}'::jsonb);
+                    update public.profiles set role=@role::public.user_role, is_active=@active where id=@id;
+                    """, ("id", id), ("email", $"{id:N}@lab.example"), ("role", role), ("active", active));
+            await Exec("insert into public.warehouses(id,code,name) values(@id,@code,'HTTP lab')", ("id", warehouseId), ("code", run));
+            foreach (var id in products)
+                await Exec("""
+                    insert into public.products(id,sku,name,cost_price) values(@id,@sku,'HTTP lab',60000);
+                    insert into public.inventory_items(warehouse_id,product_id,stock) values(@warehouse,@id,@stock);
+                    """, ("id", id), ("sku", $"HTTP-{id:N}"), ("warehouse", warehouseId),
+                    ("stock", id == emptyProduct ? 0m : id == lastProduct ? 1m : 100m));
+
+            var create = Request("main");
+            await Send(HttpMethod.Post, "/api/v1/orders", create, null, 401);
+            await Send(HttpMethod.Post, "/api/v1/orders", create, "invalid", 401);
+            await Send(HttpMethod.Post, "/api/v1/orders", create, Token(managerId, "wrong-issuer"), 401);
+            await Send(HttpMethod.Post, "/api/v1/orders", create, Token(managerId, expired: true), 401);
+            await Send(HttpMethod.Post, "/api/v1/orders", create, Token(inactiveId), 403);
+            await Post("/api/v1/orders", create, 403, worker);
+            Console.WriteLine("PASS HTTP: JWT validation, inactive profile and warehouse create denial (401/403).");
+
+            var created = await Post("/api/v1/orders", create, 201);
+            var orderId = created.GetProperty("id").GetGuid();
+            var itemId = created.GetProperty("items")[0].GetProperty("id").GetGuid();
+            Check(created.GetProperty("total").GetDecimal() == 240000m, "calculated order total");
+            Check(created.GetProperty("items")[0].GetProperty("unitCost").GetDecimal() == 60000m, "catalog cost snapshot");
+            await State(orderId, "pending", 100m, 2m);
+            await Exec("update public.products set is_active=false,cost_price=90000 where id=@id", ("id", productId));
+            var replay = await Post("/api/v1/orders", create);
+            Check(replay.GetProperty("id").GetGuid() == orderId && replay.GetProperty("items")[0].GetProperty("unitCost").GetDecimal() == 60000m, "replay bypasses changed/inactive catalog");
+            await Exec("update public.products set is_active=true,cost_price=60000 where id=@id", ("id", productId));
+            await Post("/api/v1/orders", create with { ShippingFee = 1m }, 409);
+            await Post("/api/v1/orders", create with { IdempotencyKey = $"{run}:duplicate-number" }, 409);
+            await Post("/api/v1/orders", Request("unknown-product", product: Guid.NewGuid()), 400);
+            await Post("/api/v1/orders", Request("bad-warehouse") with { WarehouseId = Guid.NewGuid() }, 400);
+            await Post("/api/v1/orders", Request("bad-customer") with { CustomerId = Guid.NewGuid() }, 400);
+            await Post("/api/v1/orders", Request("null-items") with { Items = null! }, 400);
+            await Post("/api/v1/orders", Request("negative", -1m), 400);
+            Console.WriteLine("PASS HTTP: atomic create/reserve, stable replay/snapshot and invalid input/reference handling.");
+
+            var shortage = Request("partial-shortage") with { Items = [new(firstProduct, 1m, 100m), new(emptyProduct, 1m, 100m)] };
+            await Post("/api/v1/orders", shortage, 409);
+            Check(await Number("select reserved from public.inventory_items where product_id=@id", ("id", firstProduct)) == 0, "partial reserve rolled back");
+            Check(await Number("select count(*) from public.orders where idempotency_key=@key", ("key", shortage.IdempotencyKey)) == 0, "shortage order rolled back");
+            Check(await Number("select count(*) from public.inventory_reservations where product_id=@id", ("id", firstProduct)) == 0, "shortage reservation rolled back");
+            Check(await Number("select count(*) from public.stock_transactions where product_id=@id", ("id", firstProduct)) == 0, "shortage ledger rolled back");
+            var auditRequest = Request("audit-fail");
+            await FailAudit("order.created", auditRequest.OrderNumber,
+                async () => { await Post("/api/v1/orders", auditRequest, 500); });
+            Check(await Number("select reserved from public.inventory_items where product_id=@id", ("id", productId)) == 2, "audit failure restores reserve");
+            Check(await Number("select count(*) from public.orders where idempotency_key=@key", ("key", auditRequest.IdempotencyKey)) == 0, "audit failure removes new order");
+            var auditRetry = await Post("/api/v1/orders", auditRequest, 201);
+            await Post($"/api/v1/orders/{auditRetry.GetProperty("id").GetGuid()}/cancel", new CancelOrderRequest($"{run}:audit-clean", "Cleanup"));
+            Console.WriteLine("PASS HTTP: later-line shortage and audit failure roll back create/reserve; retry succeeds.");
+
+            await Post($"/api/v1/orders/{orderId}/ship", new ShipOrderRequest($"{run}:early-ship"), 409, worker);
+            await Post($"/api/v1/orders/{orderId}/process", new OrderProgressRequest($"{run}:early-process"), 409, worker);
+            var confirm = new OrderProgressRequest($"{run}:confirm");
+            await Post($"/api/v1/orders/{orderId}/confirm", confirm, 403, worker);
+            await Post($"/api/v1/orders/{orderId}/confirm", confirm);
+            Check((await Post($"/api/v1/orders/{orderId}/confirm", confirm)).GetProperty("replayed").GetBoolean(), "confirm replay");
+            var process = new OrderProgressRequest($"{run}:process");
+            await Post($"/api/v1/orders/{orderId}/process", process, token: worker);
+            Check((await Post($"/api/v1/orders/{orderId}/process", process, token: worker)).GetProperty("replayed").GetBoolean(), "process replay");
+            var ship = new ShipOrderRequest($"{run}:ship");
+            await FailAudit("order.shipped", create.OrderNumber,
+                async () => { await Post($"/api/v1/orders/{orderId}/ship", ship, 500, worker); });
+            await State(orderId, "processing", 100m, 2m);
+            await Post($"/api/v1/orders/{orderId}/ship", ship, token: worker);
+            Check((await Post($"/api/v1/orders/{orderId}/ship", ship, token: worker)).GetProperty("replayed").GetBoolean(), "ship replay");
+            await State(orderId, "shipped", 98m, 0m);
+            var warehouseDetail = await Send(HttpMethod.Get, $"/api/v1/orders/{orderId}", null, worker, 200);
+            Check(warehouseDetail.GetProperty("items")[0].GetProperty("unitCost").ValueKind == JsonValueKind.Null, "warehouse order response hides unit cost");
+            await Post($"/api/v1/orders/{orderId}/cancel", new CancelOrderRequest($"{run}:late-cancel", "Too late"), 409);
+            Console.WriteLine("PASS HTTP: confirm/process/ship lifecycle, transition replay, role checks and cost redaction.");
+
+            var cancelBody = Request("cancel", 3m);
+            var toCancel = (await Post("/api/v1/orders", cancelBody, 201)).GetProperty("id").GetGuid();
+            var cancel = new CancelOrderRequest($"{run}:cancel", "Customer changed mind");
+            await Post($"/api/v1/orders/{toCancel}/cancel", cancel, 403, worker);
+            await FailAudit("order.cancelled", cancelBody.OrderNumber,
+                async () => { await Post($"/api/v1/orders/{toCancel}/cancel", cancel, 500); });
+            await State(toCancel, "pending", 98m, 3m);
+            await Post($"/api/v1/orders/{toCancel}/cancel", cancel);
+            Check((await Post($"/api/v1/orders/{toCancel}/cancel", cancel)).GetProperty("replayed").GetBoolean(), "cancel replay");
+            await Post($"/api/v1/orders/{toCancel}/cancel", cancel with { Reason = "Different" }, 409);
+            await State(toCancel, "cancelled", 98m, 0m);
+            await Exec("insert into public.orders(id,order_number,status) values(@id,@number,'pending')", ("id", legacyId), ("number", $"{run}-legacy"));
+            await Post($"/api/v1/orders/{legacyId}/cancel", new CancelOrderRequest($"{run}:legacy", "Legacy order"));
+            Check(await Number("select count(*) from public.stock_transactions where reference_id=@id", ("id", legacyId)) == 0, "legacy cancel does not fabricate stock mutation");
+            Console.WriteLine("PASS HTTP: cancel/release rollback and retry; legacy pending cancellation leaves stock untouched.");
+
+            var concurrentBody = Request("concurrent", 1m);
+            var concurrent = await Task.WhenAll(Enumerable.Range(0, 8).Select(async _ =>
+            {
+                using var message = new HttpRequestMessage(HttpMethod.Post, "/api/v1/orders") { Content = JsonContent.Create(concurrentBody) };
+                message.Headers.Authorization = new("Bearer", manager);
+                using var response = await client.SendAsync(message);
+                var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+                return (Status: (int)response.StatusCode, Id: json.GetProperty("id").GetGuid());
+            }));
+            Check(concurrent.Count(x => x.Status == 201) == 1 && concurrent.Count(x => x.Status == 200) == 7, "8 creates produce 1+7");
+            Check(concurrent.Select(x => x.Id).Distinct().Count() == 1, "same order returned concurrently");
+            var secondId = concurrent[0].Id;
+            await Post($"/api/v1/orders/{secondId}/confirm", new OrderProgressRequest($"{run}:second-confirm"));
+            await Post($"/api/v1/orders/{secondId}/process", new OrderProgressRequest($"{run}:second-process"), token: worker);
+            await Post($"/api/v1/orders/{secondId}/ship", new ShipOrderRequest($"{run}:second-ship"), token: worker);
+            var raceBodies = new[] { Request("last-a", 1m, lastProduct), Request("last-b", 1m, lastProduct) };
+            var raceStatuses = await Task.WhenAll(raceBodies.Select(async body =>
+            {
+                using var message = new HttpRequestMessage(HttpMethod.Post, "/api/v1/orders") { Content = JsonContent.Create(body) };
+                message.Headers.Authorization = new("Bearer", manager);
+                using var response = await client.SendAsync(message);
+                return (int)response.StatusCode;
+            }));
+            Check(raceStatuses.Count(x => x == 201) == 1 && raceStatuses.Count(x => x == 409) == 1, "last-unit HTTP race");
+            Check(await Number("select reserved from public.inventory_items where product_id=@id", ("id", lastProduct)) == 1, "no oversell");
+            Console.WriteLine("PASS HTTP: concurrent create idempotency and two orders racing for last unit.");
+
+            var returnId = Guid.NewGuid();
+            var returnBody = new CreateReturnRequest(returnId, orderId, "Damaged", [new(itemId, 1m)]);
+            await Post("/api/v1/returns", returnBody, 403, worker);
+            await FailAudit("return.requested", create.OrderNumber,
+                async () => { await Post("/api/v1/returns", returnBody, 500); });
+            Check(await Number("select count(*) from public.return_requests where id=@id", ("id", returnId)) == 0, "return audit failure rolls back header");
+            Check(await Number("select count(*) from public.return_items where return_request_id=@id", ("id", returnId)) == 0, "return audit failure rolls back lines");
+            await Post("/api/v1/returns", returnBody, 201);
+            await Post("/api/v1/returns", returnBody);
+            await Send(HttpMethod.Get, $"/api/v1/returns/{returnId}", null, worker, 200);
+            await Post("/api/v1/returns", returnBody with { Reason = "Changed" }, 409);
+            await Post("/api/v1/returns", returnBody with { Id = Guid.NewGuid(), Items = [new(itemId, 2m)] }, 409);
+            await Post("/api/v1/returns", returnBody with { Id = Guid.NewGuid(), Items = [new(itemId, 0m)] }, 400);
+            await Post("/api/v1/returns", returnBody with { Id = Guid.NewGuid(), OrderId = toCancel }, 409);
+            var secondDetail = await Send(HttpMethod.Get, $"/api/v1/orders/{secondId}", null, manager, 200);
+            var secondItem = secondDetail.GetProperty("items")[0].GetProperty("id").GetGuid();
+            var returnRaces = await Task.WhenAll(Enumerable.Range(0, 2).Select(async _ =>
+            {
+                using var message = new HttpRequestMessage(HttpMethod.Post, "/api/v1/returns")
+                { Content = JsonContent.Create(new CreateReturnRequest(Guid.NewGuid(), secondId, "Race", [new(secondItem, 1m)])) };
+                message.Headers.Authorization = new("Bearer", manager);
+                using var response = await client.SendAsync(message);
+                return (int)response.StatusCode;
+            }));
+            Check(returnRaces.Count(x => x == 201) == 1 && returnRaces.Count(x => x == 409) == 1, "return race respects remaining quantity");
+            Console.WriteLine("PASS HTTP day 4: return request/read/replay/role/quantity and concurrent over-return prevention.");
+
+            var feeId = Guid.NewGuid();
+            var fee = new { id = feeId, feeType = "commission", amount = 10000m };
+            await Post($"/api/v1/orders/{orderId}/fees", fee, 403, worker);
+            await Send(HttpMethod.Get, $"/api/v1/orders/{orderId}/fees", null, worker, 403);
+            await FailAudit("fee.created", create.OrderNumber,
+                async () => { await Post($"/api/v1/orders/{orderId}/fees", fee, 500); });
+            Check(await Number("select count(*) from public.order_fee_breakdowns where id=@id", ("id", feeId)) == 0, "fee audit failure rolls back fee");
+            await Post($"/api/v1/orders/{orderId}/fees", fee, 201);
+            await Post($"/api/v1/orders/{orderId}/fees", fee, 409);
+            var fees = await Send(HttpMethod.Get, $"/api/v1/orders/{orderId}/fees", null, manager, 200);
+            Check(fees.GetArrayLength() == 1 && fees[0].GetProperty("amount").GetDecimal() == 10000m, "fee read and no duplicate");
+            await Post($"/api/v1/orders/{orderId}/fees", new { id=Guid.NewGuid(), feeType="unknown", amount=1m }, 400);
+            await Post($"/api/v1/orders/{orderId}/fees", new { id=Guid.NewGuid(), feeType="ads", amount=-1m }, 400);
+            var profit = await Send(HttpMethod.Get, $"/api/v1/orders/{orderId}/profit-estimate", null, manager, 200);
+            Check(profit.GetProperty("estimatedProfit").GetDecimal() == 100000m, "estimate 230000 - 120000 - 10000");
+            await Send(HttpMethod.Get, $"/api/v1/orders/{orderId}/profit-estimate", null, worker, 403);
+            await Send(HttpMethod.Get, $"/api/v1/orders/{orderId}/profit-estimate", null, Token(adminId), 200);
+            var missing = Guid.NewGuid();
+            await Send(HttpMethod.Get, $"/api/v1/orders/{missing}/fees", null, manager, 404);
+            await Post($"/api/v1/orders/{missing}/fees", new { id=Guid.NewGuid(), feeType="ads", amount=1m }, 404);
+            await Post($"/api/v1/orders/{missing}/cancel", new CancelOrderRequest($"{run}:missing-cancel", "Missing"), 404);
+            await Post($"/api/v1/orders/{missing}/ship", new ShipOrderRequest($"{run}:missing-ship"), 404, worker);
+            await Post("/api/v1/returns", returnBody with { Id=Guid.NewGuid(), OrderId=missing }, 404);
+            Check(await Number("select count(*) from public.audit_logs where entity_id=@id and action='fee.created'", ("id", feeId)) == 1, "fee audit once");
+            Console.WriteLine("PASS HTTP day 4: fee validation/read/audit/conflict, finance role and missing resources.");
+            if (args.Contains("--postman"))
+                await PostmanLabRunner.RunAsync(root, client, manager, worker, warehouseId, productId, run);
+            Console.WriteLine($"PASS HTTP TOTAL: {assertions} assertions; real ASP.NET pipeline/JWT/profile/database, local lab signing key only.");
+        }
+        finally
+        {
+            await using var connection = await source.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+            await using var cleanup = new NpgsqlCommand("""
+                create temporary table lab_orders_to_remove on commit drop as
+                    select id from public.orders where idempotency_key like @prefix or id=@legacy;
+                delete from public.inventory_operation_receipts
+                    where payload ->> 'OrderId' in (select id::text from lab_orders_to_remove);
+                delete from public.stock_transactions where reference_type='order' and reference_id in (select id from lab_orders_to_remove);
+                delete from public.audit_logs where actor_id=any(@users);
+                delete from public.return_requests where order_id in (select id from lab_orders_to_remove);
+                delete from public.orders where id in (select id from lab_orders_to_remove);
+                delete from public.inventory_items where warehouse_id=@warehouse and product_id=any(@products);
+                delete from public.products where id=any(@products);
+                delete from public.warehouses where id=@warehouse;
+                delete from auth.users where id=any(@users);
+                """, connection, transaction);
+            cleanup.Parameters.AddWithValue("prefix", run + "%");
+            cleanup.Parameters.AddWithValue("legacy", legacyId);
+            cleanup.Parameters.AddWithValue("users", users);
+            cleanup.Parameters.AddWithValue("products", products);
+            cleanup.Parameters.AddWithValue("warehouse", warehouseId);
+            await cleanup.ExecuteNonQueryAsync();
+            await transaction.CommitAsync();
+            Console.WriteLine("PASS: HTTP lab fixtures cleaned up.");
+        }
+    }
+
+    private static string FindRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+            if (File.Exists(Path.Combine(directory.FullName, "backend", "NexusOMS.slnx"))) return directory.FullName;
+        throw new InvalidOperationException("Cannot find repository root.");
+    }
+}

@@ -34,6 +34,8 @@ public sealed class OrdersController(OrderService orders)
         if (order is null)
             return NotFound();
 
+        if (!User.IsInRole(Roles.Manager) && !User.IsInRole(Roles.Admin))
+            order = order with { Items = order.Items.Select(item => item with { UnitCost = null }).ToArray() };
         return Ok(order);
     }
 }

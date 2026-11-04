@@ -14,6 +14,15 @@ public static class OrderingAndFinanceModuleExtensions
         services.AddScoped<IReturnRepository, PostgresReturnRepository>();
         services.AddScoped<ReturnService>();
         services.AddScoped<OrderProfitService>();
+        services.AddScoped<IOrderCreationRepository, PostgresOrderCreationRepository>();
+        services.AddScoped<OrderPreparationService>();
+        services.AddScoped<OrderCreationService>();
+        services.AddScoped<IOrderCancellationRepository, PostgresOrderCancellationRepository>();
+        services.AddScoped<OrderCancellationService>();
+        services.AddScoped<IOrderShippingRepository, PostgresOrderShippingRepository>();
+        services.AddScoped<OrderShippingService>();
+        services.AddScoped<IOrderProgressRepository, PostgresOrderProgressRepository>();
+        services.AddScoped<OrderProgressService>();
         return services;
     }
 }

@@ -1,4 +1,5 @@
 using Npgsql;
+using NexusOMS.InventoryAndChannels;
 using NexusOMS.OrderingAndFinance;
 
 const string connectionString =
@@ -39,6 +40,9 @@ await using (var seed = dataSource.CreateCommand("""
 
     insert into public.products (id, sku, name, cost_price)
     values (@productId, @sku, 'Sản phẩm lab tạo đơn', 60000);
+
+    insert into public.inventory_items(warehouse_id, product_id, stock)
+    values (@warehouseId, @productId, 10);
     """))
 {
     seed.Parameters.AddWithValue("warehouseId", warehouseId);
@@ -75,7 +79,7 @@ var prepared = new PreparedOrder(
     ]);
 
 var orders = new PostgresOrderRepository(dataSource);
-var repository = new PostgresOrderCreationRepository(dataSource, orders);
+var repository = new PostgresOrderCreationRepository(dataSource, orders, new PostgresInventoryContract());
 
 var created = await repository.CreateAsync(
     request, prepared, actorId);
@@ -287,6 +291,12 @@ await using (var connection = await dataSource.OpenConnectionAsync())
         await connection.BeginTransactionAsync();
 
     await using var cleanup = new NpgsqlCommand("""
+        delete from public.inventory_operation_receipts
+        where payload ->> 'OrderId' = any(@orderTexts);
+
+        delete from public.stock_transactions
+        where reference_type = 'order' and reference_id = any(@orderIds);
+
         delete from public.audit_logs
         where entity_type = 'orders'
           and action = 'order.created'
@@ -294,6 +304,9 @@ await using (var connection = await dataSource.OpenConnectionAsync())
 
         delete from public.orders
         where id = any(@orderIds);
+
+        delete from public.inventory_items
+        where product_id = @productId and warehouse_id = @warehouseId;
 
         delete from public.products
         where id = @productId;
@@ -304,6 +317,7 @@ await using (var connection = await dataSource.OpenConnectionAsync())
 
     cleanup.Parameters.AddWithValue(
         "orderIds", new[] { created.Order.Id, concurrentOrderId });
+    cleanup.Parameters.AddWithValue("orderTexts", new[] { created.Order.Id.ToString(), concurrentOrderId.ToString() });
     cleanup.Parameters.AddWithValue("productId", productId);
     cleanup.Parameters.AddWithValue("warehouseId", warehouseId);
 

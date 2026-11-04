@@ -31,14 +31,12 @@ on success. Historical fixtures from older lab runs are not deleted.
 ## Limits
 
 This is a repository/contract integration lab, not an HTTP or frontend E2E test.
-Fixture orders are seeded before ReserveAsync is invoked. Production order
-creation still does not invoke reserve and creation must be integrated and tested
-atomically before enabling its endpoint. No DI registrations or endpoints for
-order create/cancel/ship were added by this merge check.
+Fixture orders are seeded before ReserveAsync is invoked. Production order creation now invokes reserve in its transaction. The separate
+NexusOMS.ApiLab runs HTTP lifecycle, partial-shortage/audit rollback and role checks.
+The old merge-only limits below are superseded by docs/guides/DEV2_NGAY3_4_HOC_LAI.md.
 
-Pending legacy orders with no reservation currently cause Inventory release to
-reject cancellation. Define and test a policy for these orders before opening the
-cancel endpoint. ReturnInbound quantity limits and the monetary-rounding policy
+Pending legacy orders with creation_request NULL and no reservation history can
+now cancel without modifying stock; missing holds on modern orders still fail. ReturnInbound quantity limits and the monetary-rounding policy
 remain separate work.
 
 ## Migration ordering

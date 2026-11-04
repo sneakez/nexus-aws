@@ -84,6 +84,17 @@ internal static class OrderInventoryIntegrationChecks
 
         try
         {
+            var modernWithoutHold = await Create("pending");
+            await Execute("update public.orders set creation_request='{}'::jsonb where id=@id", ("id", modernWithoutHold.OrderId));
+            await Expect<InventoryReservationNotFoundException>(() => cancellation.CancelAsync(
+                modernWithoutHold.OrderId, new($"{run}:missing-modern-hold", "Must not bypass"), actorId));
+            Require(await Count("select count(*) from public.orders where id=@id and status='pending'",
+                ("id", modernWithoutHold.OrderId)) == 1, "modern missing-hold order remains pending");
+            await ReceiptCount(modernWithoutHold, 0);
+            Require(await Count("select reserved::bigint from public.inventory_items where product_id=@id",
+                ("id", modernWithoutHold.ProductId)) == 0, "missing-hold cancellation does not mutate stock");
+            Console.WriteLine("PASS: modern order with missing reservation cannot use the legacy no-op exception.");
+
             var cancel = await Create("pending");
             var catalog = new PostgresProductCatalogContract(source);
             var products = await catalog.GetActiveProductsAsync([cancel.ProductId, Guid.NewGuid()]);
