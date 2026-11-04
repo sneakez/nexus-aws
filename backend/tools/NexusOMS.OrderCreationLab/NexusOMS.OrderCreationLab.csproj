@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\OrderingAndFinance\Infrastructure\NexusOMS.OrderingAndFinance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\InventoryAndChannels\Infrastructure\NexusOMS.InventoryAndChannels.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
