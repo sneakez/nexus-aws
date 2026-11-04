@@ -46,13 +46,13 @@ public sealed class PostgresInventoryRepository(NpgsqlDataSource dataSource) : I
         return transactions;
     }
 
-    public Task<InventoryChangeResult> ReceiveAsync(Guid warehouseId, Guid productId, decimal quantity, string? idempotencyKey, CancellationToken cancellationToken = default) =>
-        ChangeAsync(warehouseId, productId, quantity, "inbound", idempotencyKey, cancellationToken);
+    public Task<InventoryChangeResult> ReceiveAsync(Guid warehouseId, Guid productId, decimal quantity, string? idempotencyKey, Guid actorId, CancellationToken cancellationToken = default) =>
+        ChangeAsync(warehouseId, productId, quantity, "inbound", idempotencyKey, actorId, cancellationToken);
 
-    public Task<InventoryChangeResult> AdjustAsync(Guid warehouseId, Guid productId, decimal quantityDelta, string? idempotencyKey, CancellationToken cancellationToken = default) =>
-        ChangeAsync(warehouseId, productId, quantityDelta, "adjustment", idempotencyKey, cancellationToken);
+    public Task<InventoryChangeResult> AdjustAsync(Guid warehouseId, Guid productId, decimal quantityDelta, string? idempotencyKey, Guid actorId, CancellationToken cancellationToken = default) =>
+        ChangeAsync(warehouseId, productId, quantityDelta, "adjustment", idempotencyKey, actorId, cancellationToken);
 
-    private async Task<InventoryChangeResult> ChangeAsync(Guid warehouseId, Guid productId, decimal quantityDelta, string type, string? idempotencyKey, CancellationToken cancellationToken)
+    private async Task<InventoryChangeResult> ChangeAsync(Guid warehouseId, Guid productId, decimal quantityDelta, string type, string? idempotencyKey, Guid actorId, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -92,6 +92,22 @@ public sealed class PostgresInventoryRepository(NpgsqlDataSource dataSource) : I
             logCommand.Parameters.AddWithValue("quantityDelta", quantityDelta);
             logCommand.Parameters.Add("idempotencyKey", NpgsqlDbType.Text).Value = (object?)idempotencyKey ?? DBNull.Value;
             var transactionId = (Guid)(await logCommand.ExecuteScalarAsync(cancellationToken))!;
+
+            const string audit = """
+                insert into public.audit_logs (actor_id, action, entity_type, entity_id, metadata)
+                values (@actorId, @action, 'stock_transactions', @transactionId,
+                    jsonb_build_object('warehouseId', @warehouseId, 'productId', @productId,
+                        'quantityDelta', @quantityDelta, 'idempotencyKey', @idempotencyKey))
+                """;
+            await using var auditCommand = new NpgsqlCommand(audit, connection, transaction);
+            auditCommand.Parameters.AddWithValue("actorId", actorId);
+            auditCommand.Parameters.AddWithValue("action", type == "inbound" ? "inventory.received" : "inventory.adjusted");
+            auditCommand.Parameters.AddWithValue("transactionId", transactionId);
+            auditCommand.Parameters.AddWithValue("warehouseId", warehouseId);
+            auditCommand.Parameters.AddWithValue("productId", productId);
+            auditCommand.Parameters.AddWithValue("quantityDelta", quantityDelta);
+            auditCommand.Parameters.Add("idempotencyKey", NpgsqlDbType.Text).Value = (object?)idempotencyKey ?? DBNull.Value;
+            await auditCommand.ExecuteNonQueryAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new InventoryChangeResult(await ReadItemAsync(raw, cancellationToken), transactionId);
         }

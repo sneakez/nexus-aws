@@ -1,4 +1,5 @@
 using NexusOMS.Api.Authorization;
+using NexusOMS.Api.Integration;
 using NexusOMS.InventoryAndChannels;
 using NexusOMS.OrderingAndFinance;
 using Npgsql;
@@ -11,6 +12,8 @@ builder.Services
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddScoped<NexusOMS.Api.Infrastructure.OrderWorkflowExceptionFilter>();
+builder.Services.AddScoped<WebhookSimulatorService>();
+builder.Services.AddHostedService<WebhookRetryWorker>();
 builder.Services.AddNexusAuthorization(builder.Configuration);
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres must be configured.");
