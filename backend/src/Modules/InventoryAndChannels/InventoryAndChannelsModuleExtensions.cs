@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using NexusOMS.Contracts;
 namespace NexusOMS.InventoryAndChannels;
 
 public static class InventoryAndChannelsModuleExtensions
@@ -15,6 +16,8 @@ public static class InventoryAndChannelsModuleExtensions
         services.AddScoped<WarehouseBinService>();
         services.AddScoped<IInventoryRepository, PostgresInventoryRepository>();
         services.AddScoped<InventoryService>();
+        services.AddScoped<IInventoryContract, PostgresInventoryContract>();
+        services.AddScoped<IProductCatalogContract, PostgresProductCatalogContract>();
         services.AddScoped<IChannelRepository, PostgresChannelRepository>();
         services.AddScoped<ChannelService>();
         return services;
