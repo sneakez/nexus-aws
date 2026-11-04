@@ -718,8 +718,33 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-              "pm.test(\"Unit cost hidden\", () => pm.expect(pm.response.json().items[0].unitCost).to.eql(null));"
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Unit cost hidden', () => pm.expect(pm.response.json().items[0].unitCost).to.eql(null));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23 Order contribution",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/v1/orders/{{orderId}}/contribution"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Contribution amounts', () => {",
+              "  const report = pm.response.json();",
+              "  pm.expect(report.cm1).to.eql(110000);",
+              "  pm.expect(report.cm2).to.eql(100000);",
+              "  pm.expect(report.cm3).to.eql(100000);",
+              "  pm.expect(report.hasCompleteCost).to.eql(true);",
+              "});"
             ]
           }
         }
