@@ -1,0 +1,52 @@
+{
+  "info": {
+    "name": "NexusOMS Webhook Simulator",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Order ready to ship",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = {",
+              "  eventId: pm.variables.replaceIn('{{$guid}}'),",
+              "  eventType: 'order.ready_to_ship',",
+              "  externalOrderId: `${pm.environment.get('runPrefix') || 'webhook-demo'}-${Date.now()}`,",
+              "  warehouseId: pm.environment.get('warehouseId'),",
+              "  tax: 0,",
+              "  shippingFee: 0,",
+              "  items: [{",
+              "    channelSku: pm.environment.get('channelSku'),",
+              "    quantity: 2,",
+              "    unitPrice: 100000",
+              "  }]",
+              "};",
+              "const raw = JSON.stringify(body);",
+              "pm.variables.set('webhookBody', raw);",
+              "const secret = pm.environment.get('webhookSecret');",
+              "if (!secret) throw new Error('Set webhookSecret in your private environment first.');",
+              "const signature = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+              "pm.request.headers.upsert({ key: 'X-Nexus-Signature', value: `sha256=${signature}` });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{{webhookBody}}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/api/v1/webhooks/simulator/{{connectionId}}"
+      }
+    }
+  ]
+}

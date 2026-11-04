@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using NexusOMS.Api.Authorization;
 using NexusOMS.InventoryAndChannels;
 
@@ -28,11 +29,14 @@ public sealed class InventoryController(InventoryService inventory) : Controller
 
     private async Task<ActionResult<InventoryChangeResult>> Change(InventoryChangeRequest request, bool isReceipt, CancellationToken cancellationToken)
     {
+        if (!Guid.TryParse(User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId)
+            || actorId == Guid.Empty)
+            return Unauthorized();
         try
         {
             var result = isReceipt
-                ? await inventory.ReceiveAsync(request.WarehouseId, request.ProductId, request.Quantity, request.IdempotencyKey, cancellationToken)
-                : await inventory.AdjustAsync(request.WarehouseId, request.ProductId, request.Quantity, request.IdempotencyKey, cancellationToken);
+                ? await inventory.ReceiveAsync(request.WarehouseId, request.ProductId, request.Quantity, request.IdempotencyKey, actorId, cancellationToken)
+                : await inventory.AdjustAsync(request.WarehouseId, request.ProductId, request.Quantity, request.IdempotencyKey, actorId, cancellationToken);
             return Ok(result);
         }
         catch (ArgumentException exception) { return BadRequest(new { message = exception.Message }); }
