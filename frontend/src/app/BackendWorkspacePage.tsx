@@ -66,7 +66,11 @@ const channelStatuses: Record<string, { label: string; color: string }> = {
   error: { label: 'Lỗi kết nối', color: 'bg-rose-100 text-rose-800' },
 };
 
-function ChannelCards({ rows }: { rows: Row[] }) {
+function ChannelCards({ rows, onEdit, onRemove }: {
+  rows: Row[];
+  onEdit: (row: Row) => void;
+  onRemove: (row: Row) => void;
+}) {
   if (!rows.length) return <div className="card p-8 text-center text-ink-600">Chưa có tài khoản kênh phù hợp.</div>;
   return <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
     {rows.map(row => {
@@ -83,6 +87,10 @@ function ChannelCards({ rows }: { rows: Row[] }) {
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-3 text-sm">
           <span className="text-ink-600">Trạng thái</span>
           <span className={'badge ' + (status?.color ?? 'bg-ink-100 text-ink-700')}>{status?.label ?? 'Chưa xác định'}</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary" onClick={() => onEdit(row)}>Sửa tài khoản</button>
+          <button type="button" className="btn-secondary text-red-700" onClick={() => onRemove(row)}>Xóa tài khoản</button>
         </div>
       </li>;
     })}
@@ -239,27 +247,27 @@ function StockForm({ onSaved }: { onSaved: () => void }) {
   </details>;
 }
 
-function ChannelForm({ connection, onSaved, onClose }: { connection?: string; onSaved: () => void; onClose: () => void }) {
+function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: string; initial?: Row; onSaved: () => void; onClose: () => void }) {
   const { session } = useAuth();
   const products = useRows(connection ? '/products?status=active' : undefined, 0);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [error, setError] = useState('');
-  const title = connection ? 'Thêm ánh xạ SKU' : 'Thêm tài khoản kênh';
+  const title = connection ? 'Thêm ánh xạ SKU' : initial ? 'Sửa tài khoản kênh' : 'Thêm tài khoản kênh';
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session || inFlight.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const endpoint = connection ? '/' + encodeURIComponent(connection) + '/sku-mappings' : '';
+    const endpoint = connection ? '/' + encodeURIComponent(connection) + '/sku-mappings' : initial ? '/' + encodeURIComponent(initial.id) : '';
     const body = connection
       ? { productId: data.get('productId'), channelSku: String(data.get('channelSku')).trim() }
-      : { type: data.get('type'), accountName: String(data.get('accountName')).trim() };
+      : { type: data.get('type'), accountName: String(data.get('accountName')).trim(), ...(initial ? { status: data.get('status') } : {}) };
     inFlight.current = true;
     setBusy(true);
     setError('');
     try {
-      await orderApiRequest('/api/v1/channel-connections' + endpoint, session.access_token, undefined, body);
+      await orderApiRequest('/api/v1/channel-connections' + endpoint, session.access_token, undefined, body, undefined, initial ? 'PUT' : undefined);
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Chưa xác nhận được kết quả.');
@@ -278,11 +286,14 @@ function ChannelForm({ connection, onSaved, onClose }: { connection?: string; on
           </select></label>
           <label>SKU trên kênh<input required maxLength={100} name="channelSku" className="block w-full rounded border p-2" /></label>
         </> : <>
-          <label>Kênh<select name="type" className="block w-full rounded border p-2">
+          <label>Kênh<select name="type" defaultValue={initial ? cell(initial.type, 'type') : 'shopee'} className="block w-full rounded border p-2">
             <option value="shopee">Shopee</option><option value="tiktok_shop">TikTok Shop</option>
             <option value="lazada">Lazada</option><option value="website_d2c">Website</option>
           </select></label>
-          <label>Tên tài khoản<input required maxLength={120} name="accountName" className="block w-full rounded border p-2" /></label>
+          <label>Tên tài khoản<input required maxLength={120} name="accountName" defaultValue={initial ? cell(initial.accountName, 'accountName') : ''} className="block w-full rounded border p-2" /></label>
+          {initial && <label>Trạng thái<select name="status" defaultValue={cell(initial.status, 'status')} className="block w-full rounded border p-2">
+            <option value="connected">Đang kết nối</option><option value="disconnected">Đã ngắt kết nối</option><option value="error">Lỗi kết nối</option>
+          </select></label>}
         </>}
       </fieldset>
       {(error || products.error) && <p role="alert" className="text-red-700">{error || products.error}</p>}
@@ -296,6 +307,36 @@ function ChannelForm({ connection, onSaved, onClose }: { connection?: string; on
   </Modal>;
 }
 
+function RemoveChannelResource({ target, onClose, onRemoved }: {
+  target: { path: string; label: string };
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  const { session } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const lock = useRef(false);
+  async function remove() {
+    if (!session || lock.current) return;
+    lock.current = true; setBusy(true); setError('');
+    try {
+      try { await orderApiRequest(target.path, session.access_token, undefined, undefined, undefined, 'DELETE'); }
+      catch (cause) { if (!(cause instanceof OrderApiError) || cause.status !== 404) throw cause; }
+      onRemoved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Chưa xác nhận được kết quả xóa. Tải lại danh sách để kiểm tra.');
+    } finally { lock.current = false; setBusy(false); }
+  }
+  return <Modal open title="Xác nhận xóa" onClose={() => { if (!lock.current) onClose(); }}>
+    <p className="break-words text-sm">Xóa {target.label}? Xóa tài khoản kênh sẽ xóa các ánh xạ SKU thuộc tài khoản đó.</p>
+    {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+    <div className="mt-5 flex justify-end gap-2">
+      <button type="button" disabled={busy} className="btn-secondary" onClick={onClose}>Quay lại</button>
+      <button type="button" disabled={busy} className="btn-primary" onClick={() => { void remove(); }}>{busy ? 'Đang xóa…' : 'Xác nhận xóa'}</button>
+    </div>
+  </Modal>;
+}
+
 const unavailable: Partial<Record<PageId, string>> = {
   simulator: 'Chạy kịch bản webhook trên môi trường lab để tránh phát sinh đơn thử trong dữ liệu vận hành.',
 };
@@ -305,6 +346,8 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   const isConnections = page === 'channelConnections';
   const isMapping = page === 'channelMapping';
   const [channelFormOpen, setChannelFormOpen] = useState(false);
+  const [editingChannel, setEditingChannel] = useState<Row | undefined>();
+  const [removeTarget, setRemoveTarget] = useState<{ path: string; label: string } | null>(null);
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState('');
   const [transactions, setTransactions] = useState(false);
@@ -320,7 +363,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
         <RefreshCw size={16} aria-hidden="true" /> Tải lại
       </button>}
       {(isConnections || isMapping) && <button className="btn-primary" type="button"
-        disabled={isMapping && !selection} onClick={() => setChannelFormOpen(true)}>
+        disabled={isMapping && !selection} onClick={() => { setEditingChannel(undefined); setChannelFormOpen(true); }}>
         <Plus size={16} aria-hidden="true" /> {isMapping ? 'Thêm ánh xạ SKU' : 'Thêm tài khoản kênh'}
       </button>}
     </>} />
@@ -330,9 +373,13 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
     {unavailable[page] && <p className="rounded-xl border border-ink-200 bg-white p-4 text-ink-700">{unavailable[page]}</p>}
     {page === 'customers' && <CustomerForm onCreated={() => setRevision(n => n + 1)} />}
     {page === 'inventory' && <StockForm onSaved={() => setRevision(n => n + 1)} />}
-    {isConnections && <Result state={list}><ChannelCards rows={rows} /></Result>}
-    {channelFormOpen && <ChannelForm connection={isMapping ? selection : undefined}
+    {isConnections && <Result state={list}><ChannelCards rows={rows}
+      onEdit={row => { setEditingChannel(row); setChannelFormOpen(true); }}
+      onRemove={row => setRemoveTarget({ path: '/api/v1/channel-connections/' + encodeURIComponent(row.id), label: 'tài khoản ' + cell(row.accountName, 'accountName') })} /></Result>}
+    {channelFormOpen && <ChannelForm initial={editingChannel} connection={isMapping ? selection : undefined}
       onClose={() => setChannelFormOpen(false)} onSaved={() => setRevision(n => n + 1)} />}
+    {removeTarget && <RemoveChannelResource target={removeTarget} onClose={() => setRemoveTarget(null)}
+      onRemoved={() => { setRemoveTarget(null); setRevision(n => n + 1); }} />}
     {view && <Result state={list}><RowsTable rows={rows} columns={view.columns} /></Result>}
     {page === 'inventory' && <section className="space-y-3">
       <button className="btn-secondary" type="button" onClick={() => setTransactions(value => !value)}>
@@ -358,6 +405,13 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
             { id: 'product_info', title: 'Trong kho', columns: mappingColumns.slice(1).map(([key, label]) => ({
               id: key, header: label, accessor: row => cell(row[key], key),
             })) },
+            { id: 'mapping_actions', title: 'Thao tác', columns: [{
+              id: 'remove', header: 'Xóa ánh xạ', accessor: row => <button type="button" className="btn-secondary text-red-700"
+                onClick={() => setRemoveTarget({
+                  path: '/api/v1/channel-connections/' + encodeURIComponent(selection) + '/sku-mappings/' + encodeURIComponent(row.id),
+                  label: 'ánh xạ ' + cell(row.channelSku, 'channelSku'),
+                })}>Xóa ánh xạ</button>,
+            }] },
           ]} />
       </Result> : <p className="card p-6 text-ink-600">{list.rows.length
         ? 'Chọn một tài khoản để xem SKU trên kênh tương ứng với sản phẩm nào trong kho.'

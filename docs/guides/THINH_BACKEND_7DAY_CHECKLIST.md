@@ -7,7 +7,7 @@ Checklist này đối chiếu các contract, bàn giao và code đang có. Repo 
 | Hạng mục | Phần phụ trách | Bằng chứng | Kết luận |
 | --- | --- | --- | --- |
 | Auth Supabase, JWT và quyền theo profiles | Dev 2, nền tảng ngày 1 | DEV2_DAY1_HANDOFF.md; kiểm tra JWT, inactive profile, 401/403 trong ApiLab | Đã triển khai và có test |
-| Khách hàng, đọc đơn, chi tiết và lịch sử | Dev 2 | Service/repository/controller; test backend và demo UI | Có API và UI. Form tạo đơn hiện dùng khách vãng lai |
+| Khách hàng, đọc đơn, chi tiết và lịch sử | Dev 2 | Service/repository/controller; test backend và demo UI | Có API và UI. Form tạo đơn cho chọn khách đã lưu hoặc khách vãng lai |
 | Catalog, kho, kênh và SKU mapping | Dev 1 | Module InventoryAndChannels và controller tương ứng | Có backend. UI bàn giao hiện hỗ trợ các thao tác đã liệt kê bên dưới |
 | Tạo đơn và giữ tồn cùng transaction | Hai dev, ngày 3 | ApiLab kiểm tra thiếu tồn dòng sau, lỗi audit rollback và replay | Đã kiểm tra tích hợp |
 | Xác nhận, chuẩn bị, xuất kho và nhả giữ khi hủy | Hai dev, ngày 3 | ApiLab và browser smoke | Đã kiểm tra tích hợp |
@@ -25,8 +25,8 @@ Checklist này đối chiếu các contract, bàn giao và code đang có. Repo 
 Phạm vi UI API thật đang có
 
 - Kho có xem tồn, nhập/điều chỉnh và lịch sử.
-- Khách hàng có xem/thêm. Chọn khách hàng từ danh sách trong form tạo đơn chưa được nối.
-- Kết nối kênh có xem/thêm cấu hình. Mapping có xem/thêm. Các thao tác update/delete có ở backend nhưng chưa có đầy đủ UI.
+- Có thể thêm khách hàng, chọn khách đó khi tạo đơn và xem tên khách trong chi tiết đơn.
+- Có thể xem, thêm, sửa và xóa cấu hình kênh. Ánh xạ SKU hỗ trợ xem, thêm và xóa.
 - Đơn có tạo, xác nhận, chuẩn bị, xuất kho, hủy, lịch sử, phí và yêu cầu trả hàng.
 - Báo cáo có contribution theo đơn và tổng hợp theo SKU/kênh. Tổng quan đơn lấy tối đa 100 đơn gần nhất.
 - Định giá nhập tay tính giá tối thiểu theo chi phí và tỷ lệ.

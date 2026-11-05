@@ -15,7 +15,7 @@ function restore(key: string): BackendCreateOrder | null {
     if (!raw || typeof raw !== 'object') return null;
     const value = raw as BackendCreateOrder;
     if (typeof value.idempotencyKey !== 'string' || typeof value.orderNumber !== 'string'
-      || typeof value.warehouseId !== 'string' || !Number.isFinite(value.tax) || !Number.isFinite(value.shippingFee)
+      || typeof value.warehouseId !== 'string' || (value.customerId != null && typeof value.customerId !== 'string') || !Number.isFinite(value.tax) || !Number.isFinite(value.shippingFee)
       || !Array.isArray(value.items) || value.items.length === 0
       || !value.items.every(item => item && typeof item.productId === 'string'
         && Number.isFinite(item.quantity) && Number.isFinite(item.unitPrice))) return null;
@@ -33,6 +33,8 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
   const [pending, setPending] = useState<BackendCreateOrder | null>(restored);
   const [orderNumber, setOrderNumber] = useState(restored?.orderNumber ?? 'WEB-' + crypto.randomUUID().slice(0, 8).toUpperCase());
   const [warehouseId, setWarehouseId] = useState(restored?.warehouseId ?? '');
+  const [customerId, setCustomerId] = useState(restored?.customerId ?? '');
+  const [customers, setCustomers] = useState<OrderCatalogOption[]>([]);
   const [tax, setTax] = useState(String(restored?.tax ?? 0));
   const [shippingFee, setShippingFee] = useState(String(restored?.shippingFee ?? 0));
   const [lines, setLines] = useState<DraftLine[]>(() => restored
@@ -54,7 +56,7 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     setCatalogError(null);
     if (!token) { setCatalogLoading(false); setCatalogError('Vui lòng đăng nhập lại.'); return () => controller.abort(); }
     void getOrderCatalog(token, controller.signal)
-      .then(data => { if (!controller.signal.aborted) { setProducts(data.products); setWarehouses(data.warehouses); } })
+      .then(data => { if (!controller.signal.aborted) { setProducts(data.products); setWarehouses(data.warehouses); setCustomers(data.customers); } })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setCatalogError(cause instanceof Error ? cause.message : 'Không tải được danh mục.');
       })
@@ -79,7 +81,7 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     }
     const payload: BackendCreateOrder = pending ?? {
       idempotencyKey: 'web-order:' + crypto.randomUUID(), orderNumber: orderNumber.trim(),
-      customerId: null, warehouseId, tax: Number(tax), shippingFee: Number(shippingFee),
+      customerId: customerId || null, warehouseId, tax: Number(tax), shippingFee: Number(shippingFee),
       items: lines.map(line => ({ productId: line.productId, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })),
     };
     submitting.current = true;
@@ -136,7 +138,12 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
             </select>
           </label>
         </div>
-        <p className="text-sm text-ink-600">Khách hàng: khách vãng lai.</p>
+        <label className="block text-sm font-medium">Khách hàng
+          <select name="customerId" value={customerId} onChange={event => setCustomerId(event.target.value)} className={inputClass}>
+            <option value="">Khách vãng lai</option>
+            {customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          </select>
+        </label>
         <div className="space-y-4">
           {lines.map((line, index) => <fieldset key={line.rowId} className="rounded-lg border border-ink-200 p-3">
             <legend className="px-1 text-sm font-semibold">Sản phẩm {index + 1}</legend>

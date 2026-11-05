@@ -7,12 +7,12 @@ export interface BackendOrderLine {
   quantity: number; unitPrice: number; lineTotal: string; unitCost: number | null;
 }
 export interface BackendOrderDetail extends BackendOrderSummary {
-  customerId: string | null; subtotal: string; tax: number; shippingFee: number;
+  customerId: string | null; customerName?: string | null; subtotal: string; tax: number; shippingFee: number;
   items: BackendOrderLine[];
 }
 export interface OrderCatalogOption { id: string; name: string; code: string }
 export interface BackendCreateOrder {
-  idempotencyKey: string; orderNumber: string; customerId: null; warehouseId: string;
+  idempotencyKey: string; orderNumber: string; customerId: string | null; warehouseId: string;
   tax: number; shippingFee: number;
   items: { productId: string; quantity: number; unitPrice: number }[];
 }
@@ -40,7 +40,7 @@ function summary(value: unknown): BackendOrderSummary {
 function detail(value: unknown): BackendOrderDetail {
   const o = record(value);
   if (!Array.isArray(o.items)) throw new Error('Danh sách sản phẩm không hợp lệ.');
-  return { ...summary(o), customerId: nullableText(o.customerId), subtotal: exactMoney(o.subtotal),
+  return { ...summary(o), customerId: nullableText(o.customerId), customerName: o.customerName == null ? null : text(o.customerName), subtotal: exactMoney(o.subtotal),
     tax: money(o.tax), shippingFee: money(o.shippingFee),
     items: o.items.map(value => {
       const line = record(value);
@@ -50,11 +50,11 @@ function detail(value: unknown): BackendOrderDetail {
         unitCost: line.unitCost == null ? null : money(line.unitCost) };
     }) };
 }
-async function request(path: string, token: string, signal?: AbortSignal, body?: object, exactFields?: ReadonlySet<string>): Promise<unknown> {
+async function request(path: string, token: string, signal?: AbortSignal, body?: object, exactFields?: ReadonlySet<string>, method?: 'PUT' | 'DELETE'): Promise<unknown> {
   const base = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!base) throw new Error('Chưa cấu hình địa chỉ dịch vụ.');
   const response = await fetch(base.replace(/\/+$/, '') + path, {
-    method: body ? 'POST' : 'GET',
+    method: method ?? (body ? 'POST' : 'GET'),
     headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
@@ -91,9 +91,10 @@ export async function createBackendOrder(payload: BackendCreateOrder, token: str
   return detail(await request('/api/v1/orders', token, undefined, payload, exactOrderFields));
 }
 export async function getOrderCatalog(token: string, signal: AbortSignal) {
-  const [products, warehouses] = await Promise.all([
+  const [products, warehouses, customers] = await Promise.all([
     request('/api/v1/products?status=active', token, signal),
     request('/api/v1/warehouses?status=active', token, signal),
+    request('/api/v1/customers', token, signal),
   ]);
   function options(data: unknown, codeField: string): OrderCatalogOption[] {
     if (!Array.isArray(data)) throw new Error('Danh mục không hợp lệ.');
@@ -102,7 +103,7 @@ export async function getOrderCatalog(token: string, signal: AbortSignal) {
       return { id: text(item.id), name: text(item.name), code: text(item[codeField]) };
     });
   }
-  return { products: options(products, 'sku'), warehouses: options(warehouses, 'code') };
+  return { products: options(products, 'sku'), warehouses: options(warehouses, 'code'), customers: options(customers, 'name') };
 }
 export const backendOrderStatuses: Record<string, string> = {
   pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', processing: 'Đang chuẩn bị',

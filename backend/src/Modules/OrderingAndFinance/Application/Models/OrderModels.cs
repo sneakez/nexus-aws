@@ -28,4 +28,5 @@ public sealed record OrderDetail(
     decimal ShippingFee,
     decimal Total,
     DateTimeOffset CreatedAt,
-    IReadOnlyList<OrderLine> Items);
+    IReadOnlyList<OrderLine> Items,
+    string? CustomerName = null);

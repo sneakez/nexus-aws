@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 
 const origin = process.env.UAT_BASE_URL || 'http://localhost:5175';
 const productId = '592fd15b-a6f6-473f-844d-f5d26f657da0';
+const customerId = '33333333-3333-4333-8333-333333333333';
 const warehouseId = 'a858441b-6bb0-4277-a112-d31e2eb1b17b';
 const original = { id: 'original', orderNumber: 'EXISTING-001', status: 'shipped', total: 100000, createdAt: '2026-11-04T09:51:01Z' };
-const full = value => ({ ...value, customerId: null, subtotal: 100000, tax: 0, shippingFee: 0,
+const full = value => ({ ...value, customerId: value.customerId ?? null, customerName: value.customerId ? 'Khách kiểm tra' : null, subtotal: 100000, tax: 0, shippingFee: 0,
   items: [{id:'line',productId,productSku:'TEST-SKU',productName:'Sản phẩm kiểm tra',quantity:1,unitPrice:100000,lineTotal:100000,unitCost:60000}] });
 const browser = await puppeteer.launch({ headless: true });
 let assertions=0;
@@ -30,6 +31,7 @@ try {
   const respond=(status,data)=>req.respond({status,headers,contentType:'application/json',body:JSON.stringify(data)});
   if(u.pathname.startsWith('/api/')) {
    if(req.method()==='OPTIONS') return void req.respond({status:204,headers});
+   if(u.pathname==='/api/v1/customers') return void respond(200,[{id:customerId,name:'Khách kiểm tra',phone:null,email:null}]);
    if(u.pathname==='/api/v1/products') return void respond(200,[{id:productId,sku:'TEST-SKU',name:'Sản phẩm kiểm tra',isActive:true}]);
    if(u.pathname==='/api/v1/warehouses') return void respond(200,[{id:warehouseId,code:'TEST-WH',name:'Kho kiểm tra',isActive:true}]);
    if(u.pathname==='/api/v1/orders' && req.method()==='GET') return void respond(200,orders);
@@ -37,11 +39,11 @@ try {
     const body=JSON.parse(req.postData()); writes.push(body);
     if(mode==='shortage') return void respond(409,{message:'Không đủ tồn khả dụng.'});
     if(mode==='uncertain') {
-     orders.push({...original,id:'created',orderNumber:body.orderNumber,status:'pending'});
+     orders.push({...original,id:'created',orderNumber:body.orderNumber,status:'pending',customerId:body.customerId});
      mode='success'; return void req.abort('failed');
     }
     const existing=orders.find(o=>o.orderNumber===body.orderNumber);
-    const created=existing??{...original,id:'created',orderNumber:body.orderNumber,status:'pending'};
+    const created=existing??{...original,id:'created',orderNumber:body.orderNumber,status:'pending',customerId:body.customerId};
     if(!existing) orders.push(created);
     return void respond(existing?200:201,full(created));
    }
@@ -134,6 +136,7 @@ try {
   await clickText('Tạo đơn hàng');
   await page.waitForSelector('[name="warehouseId"] option[value="'+warehouseId+'"]');
   await page.select('[name="warehouseId"]',warehouseId);
+  await page.select('[name="customerId"]',customerId);
   await page.select('[aria-label="Sản phẩm 1"]',productId);
   await page.type('[aria-label="Đơn giá 1"]','100000');
  }
@@ -155,6 +158,7 @@ try {
  await page.waitForFunction(()=>document.body.innerText.includes('Không đủ tồn khả dụng.'));
  check(await page.$eval('[aria-label="Đơn giá 1"]',e=>e.value)==='100000','preserve rejected draft');
  check(writes.at(-1).items[0].unitPrice===100000,'unit price is sent without cent deduction');
+ check(writes.at(-1).customerId===customerId,'selected customer is forwarded to API');
  check(await page.$eval('[name="orderNumber"]',e=>!e.disabled && !e.closest('fieldset')?.disabled),'editable after definitive rejection');
  await clickText('Hủy');
 

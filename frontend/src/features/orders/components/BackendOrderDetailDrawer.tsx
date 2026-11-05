@@ -43,6 +43,9 @@ export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orde
             <div><dt className="text-ink-600">Trạng thái</dt><dd className="mt-1 font-semibold">{backendOrderStatuses[order.status] ?? order.status}</dd></div>
             <div><dt className="text-ink-600">Ngày tạo</dt><dd className="mt-1">{formatDate(order.createdAt)}</dd></div>
           </dl>
+          <p className="text-sm"><span className="text-ink-600">Khách hàng </span>
+            <strong>{order.customerName ?? (order.customerId ? 'Khách hàng đã liên kết' : 'Khách vãng lai')}</strong>
+          </p>
           <h3 className="font-semibold text-ink-900">Sản phẩm ({order.items.length})</h3>
           <ul className="divide-y divide-ink-100">
             {order.items.map(item => <li key={item.id} className="space-y-2 py-4 text-sm">

@@ -36,6 +36,8 @@ internal static class ApiLabProgram
         var firstProduct = pair[0]; var emptyProduct = pair[1];
         var lastProduct = Guid.NewGuid();
         var legacyId = Guid.NewGuid();
+        var customerId = Guid.Empty;
+        var uiChannelId = Guid.Empty;
         var journalId = Guid.NewGuid();
         var debitAccountId = Guid.NewGuid();
         var creditAccountId = Guid.NewGuid();
@@ -152,7 +154,27 @@ internal static class ApiLabProgram
             await Exec("insert into public.channel_connections(id,type,account_name,status) values(@id,'shopee',@name,'connected')", ("id", channelConnectionId), ("name", run));
             await Exec("insert into public.channel_sku_mappings(channel_connection_id,product_id,channel_sku) values(@connection,@product,@sku)", ("connection", channelConnectionId), ("product", webhookProductId), ("sku", $"WEBHOOK-{run}"));
 
-            var create = Request("main");
+            var customer = await Post("/api/v1/customers", new { name = "Customer " + run, phone = (string?)null, email = (string?)null }, 201);
+            customerId = customer.GetProperty("id").GetGuid();
+            var customers = await Send(HttpMethod.Get, "/api/v1/customers", null, manager, 200);
+            Check(customers.EnumerateArray().Any(row => row.GetProperty("id").GetGuid() == customerId), "Created customer is available for order selection");
+            await Send(HttpMethod.Get, "/api/v1/customers", null, worker, 403);
+
+            var uiChannel = await Post("/api/v1/channel-connections", new { type = "shopee", accountName = run + "-ui" }, 201);
+            uiChannelId = uiChannel.GetProperty("id").GetGuid();
+            var editedChannel = await Send(HttpMethod.Put, $"/api/v1/channel-connections/{uiChannelId}",
+                new { type = "shopee", accountName = run + "-edited", status = "disconnected" }, manager, 200);
+            Check(editedChannel.GetProperty("status").GetString() == "disconnected", "Channel metadata update is persisted");
+            var uiMapping = await Post($"/api/v1/channel-connections/{uiChannelId}/sku-mappings",
+                new { productId, channelSku = "UI-" + run }, 201);
+            var uiMappingId = uiMapping.GetProperty("id").GetGuid();
+            var mappings = await Send(HttpMethod.Get, $"/api/v1/channel-connections/{uiChannelId}/sku-mappings", null, manager, 200);
+            Check(mappings.EnumerateArray().Any(row => row.GetProperty("id").GetGuid() == uiMappingId), "Channel mapping can be read after creation");
+            await Send(HttpMethod.Delete, $"/api/v1/channel-connections/{uiChannelId}/sku-mappings/{uiMappingId}", null, worker, 403);
+            await Send(HttpMethod.Delete, $"/api/v1/channel-connections/{uiChannelId}/sku-mappings/{uiMappingId}", null, manager, 204);
+            await Send(HttpMethod.Delete, $"/api/v1/channel-connections/{uiChannelId}", null, manager, 204);
+
+            var create = Request("main") with { CustomerId = customerId };
             await Send(HttpMethod.Post, "/api/v1/orders", create, null, 401);
             await Send(HttpMethod.Post, "/api/v1/orders", create, "invalid", 401);
             await Send(HttpMethod.Post, "/api/v1/orders", create, Token(managerId, "wrong-issuer"), 401);
@@ -164,6 +186,8 @@ internal static class ApiLabProgram
             var created = await Post("/api/v1/orders", create, 201);
             var orderId = created.GetProperty("id").GetGuid();
             var itemId = created.GetProperty("items")[0].GetProperty("id").GetGuid();
+            Check(created.GetProperty("customerId").GetGuid() == customerId, "Order retains the selected customer");
+            Check(created.GetProperty("customerName").GetString() == "Customer " + run, "Order detail resolves the customer name");
             Check(created.GetProperty("total").GetDecimal() == 240000m, "calculated order total");
             Check(created.GetProperty("items")[0].GetProperty("unitCost").GetDecimal() == 60000m, "catalog cost snapshot");
             await State(orderId, "pending", 100m, 2m);
@@ -730,7 +754,7 @@ internal static class ApiLabProgram
                 delete from public.inventory_operation_receipts
                     where payload ->> 'OrderId' in (select id::text from lab_orders_to_remove);
                 delete from public.webhook_delivery_logs where channel_connection_id=@channelConnection;
-                delete from public.channel_connections where id=@channelConnection;
+                delete from public.channel_connections where id in (@channelConnection, @uiChannel);
                 delete from public.stock_transactions where product_id in (select product_id from lab_products_to_remove);
                 delete from public.audit_logs where entity_id in (select id from lab_orders_to_remove) or actor_id=any(@users);
                 delete from public.journal_entries where id=@journalId;
@@ -738,11 +762,14 @@ internal static class ApiLabProgram
                 where id in (@debitAccountId, @creditAccountId);
                 delete from public.return_requests where order_id in (select id from lab_orders_to_remove);
                 delete from public.orders where id in (select id from lab_orders_to_remove);
+                delete from public.customers where id=@customer;
                 delete from public.inventory_items where product_id in (select product_id from lab_products_to_remove);
                 delete from public.products where id in (select product_id from lab_products_to_remove);
                 delete from public.warehouses where id=@warehouse;
                 delete from auth.users where id=any(@users);
                 """, connection, transaction);
+            cleanup.Parameters.AddWithValue("customer", customerId);
+            cleanup.Parameters.AddWithValue("uiChannel", uiChannelId);
             cleanup.Parameters.AddWithValue("legacy", legacyId);
             cleanup.Parameters.AddWithValue("users", users);
             cleanup.Parameters.AddWithValue("products", products);
