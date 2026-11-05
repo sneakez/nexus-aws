@@ -95,7 +95,7 @@ export function BackendOrderFinance({ orderId }: { orderId: string }) {
         </dl>
         {!report.hasCompleteCost && <p className="text-sm text-amber-900">Chưa có đủ giá vốn để tính CM1–CM3.</p>}
         <h4 className="pt-2 text-sm font-semibold">Chi tiết phí ({fees.length})</h4>
-        {!fees.length ? <p className="text-sm text-ink-600">Chưa có khoản phí.</p> : <ul className="divide-y divide-ink-100">
+        {!fees.length ? <p className="text-sm text-ink-600">Chưa có khoản phí. Thêm khoản phí bên dưới để cập nhật CM2 và CM3.</p> : <ul className="divide-y divide-ink-100">
           {fees.map(fee => <li key={fee.id} className="flex justify-between gap-3 py-2 text-sm">
             <span>{feeLabels[fee.feeType] ?? fee.feeType}</span><span className="font-medium tabular-nums">{formatOrderMoney(fee.amount)}</span>
           </li>)}

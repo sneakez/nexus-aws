@@ -29,3 +29,9 @@ Trong Kết nối sàn, chọn tài khoản kênh thử. Trong Ánh xạ SKU, tr
 - Backend tại `D:\noxus-aws\backend` chạy `dotnet test NexusOMS.slnx -c Release` và `dotnet run --project tools/NexusOMS.ApiLab/NexusOMS.ApiLab.csproj -c Release`.
 - Frontend tại `D:\noxus-aws\frontend` chạy `npm run typecheck`, `npm test`, `npm run build` và `npm run test:ui:orders`. Smoke trình duyệt dùng HTTP fixtures, API Lab kiểm tra database PostgreSQL thật.
 - Khi nghiệm thu trên database đích, xác nhận migration độ chính xác tiền và chạy một lượt theo bảng trên bằng tài khoản thử nghiệm.
+
+## Đối chiếu khi số tiền khác ví dụ
+
+Tồn thực tế, Đang giữ và Khả dụng là ba trường riêng. Sau khi tạo đơn 2 chiếc từ tồn 20, các trường lần lượt là 20, 2, 18. Sau xuất kho là 18, 0, 18.
+
+Bảng CM mẫu dùng đơn giá 100.000 ₫ và đã ghi hai khoản phí. Nếu đơn giá lưu là 99.999,99 ₫ thì đơn 2 chiếc cộng giao hàng 30.000 ₫ có giá trị 229.999,98 ₫. Giá vốn 120.000 ₫ cho CM1 109.999,98 ₫. Sau khi ghi hoa hồng 10.000 ₫ và quảng cáo 20.000 ₫, CM2 là 99.999,98 ₫ và CM3 là 79.999,98 ₫. Khi Chi tiết phí là 0, CM2 và CM3 bằng CM1.

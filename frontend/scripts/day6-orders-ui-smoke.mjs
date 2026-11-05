@@ -154,6 +154,7 @@ try {
  await clickText('Tạo đơn và giữ hàng');
  await page.waitForFunction(()=>document.body.innerText.includes('Không đủ tồn khả dụng.'));
  check(await page.$eval('[aria-label="Đơn giá 1"]',e=>e.value)==='100000','preserve rejected draft');
+ check(writes.at(-1).items[0].unitPrice===100000,'unit price is sent without cent deduction');
  check(await page.$eval('[name="orderNumber"]',e=>!e.disabled && !e.closest('fieldset')?.disabled),'editable after definitive rejection');
  await clickText('Hủy');
 

@@ -62,7 +62,8 @@ Script giữ nguyên tồn nếu chạy lại. Kịch bản thao tác đầy đ�
 | Backend | 76 test qua |
 | API Lab | 199 assertions qua với JWT và PostgreSQL lab |
 | Frontend unit | 149 test qua |
-| Browser đơn hàng | 48 assertions qua với HTTP fixtures |
+| Browser đơn hàng | 49 assertions qua với HTTP fixtures |
+| Browser tồn mobile và phí lẻ | Qua, gồm tồn 20/giữ 2/khả dụng 18 và CM của đơn 229.999,98 ₫ |
 | Browser vai trò và trang | 58 tổ hợp trang/vai trò/kích thước qua với HTTP fixtures |
 | Browser Login và AuthProvider thật | Admin, manager, warehouse, thiếu quyền qua đăng nhập/khôi phục/đăng xuất với HTTP fixtures |
 | Lint build API | 40 file thực sự được bundle, 0 lỗi và 0 cảnh báo |

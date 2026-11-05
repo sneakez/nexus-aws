@@ -18,7 +18,7 @@ const views: Partial<Record<PageId, View>> = {
   skuEconomics: { endpoint: '/finance-summary/sku', columns: [['label', 'SKU'], ['orderCount', 'Đơn'], ['quantity', 'Số lượng'], ['revenue', 'Tiền hàng'], ['costOfGoods', 'Giá vốn'], ['cm1', 'Sau giá vốn']] },
   channelEconomics: { endpoint: '/finance-summary/channels', columns: [['label', 'Tài khoản kênh'], ['orderCount', 'Đơn'], ['revenue', 'Giá trị đơn'], ['costOfGoods', 'Giá vốn'], ['operatingFees', 'Phí vận hành'], ['advertisingFees', 'Quảng cáo'], ['cm1', 'CM1'], ['cm2', 'CM2'], ['cm3', 'CM3']] },
   customers: { endpoint: '/customers', columns: [['name', 'Tên'], ['phone', 'Điện thoại'], ['email', 'Email']] },
-  inventory: { endpoint: '/inventory', columns: [['warehouseCode', 'Kho'], ['productSku', 'SKU'], ['productName', 'Sản phẩm'], ['stock', 'Tồn'], ['reserved', 'Đã giữ'], ['pendingQc', 'Chờ kiểm'], ['incoming', 'Sắp về'], ['available', 'Khả dụng']] },
+  inventory: { endpoint: '/inventory', columns: [['warehouseCode', 'Kho'], ['productSku', 'SKU'], ['productName', 'Sản phẩm'], ['stock', 'Tồn thực tế'], ['reserved', 'Đang giữ'], ['pendingQc', 'Chờ kiểm'], ['incoming', 'Sắp về'], ['available', 'Khả dụng']] },
 
 };
 const transactionColumns: Column[] = [['createdAt', 'Thời điểm'], ['type', 'Loại'], ['quantityDelta', 'Thay đổi'], ['referenceType', 'Nguồn'], ['referenceId', 'Mã tham chiếu']];
@@ -44,6 +44,12 @@ function RowsTable({ rows, columns }: { rows: Row[]; columns: readonly Column[] 
   return <HierarchicalDataGrid<Row> data={rows} rowKey={row => row.id}
     searchPlaceholder="Tìm trong danh sách"
     searchFilter={(row, query) => columns.some(([key]) => cell(row[key], key).toLocaleLowerCase('vi').includes(query))}
+    renderMobileCard={row => <dl className="grid grid-cols-2 gap-x-4 gap-y-3" aria-label="Thông tin bản ghi">
+      {columns.map(([key, label]) => <div key={key} className="min-w-0">
+        <dt className="text-xs text-ink-600">{label}</dt>
+        <dd className="mt-1 break-words text-sm font-semibold tabular-nums text-ink-900">{cell(row[key], key)}</dd>
+      </div>)}
+    </dl>}
     groups={[{ id: 'record_info', title: 'Thông tin', columns: columns.map(([key, label]) => ({
       id: key, header: label, accessor: row => cell(row[key], key),
       align: moneyKeys.has(key) ? 'right' : 'left',
