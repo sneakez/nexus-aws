@@ -92,3 +92,5 @@ test:ui mặc định dùng frontend 5175. Đặt UAT_BASE_URL nếu thay cổng
 Nguồn tham khảo cũ vẫn có 248 lỗi lint và 20 cảnh báo ở lượt kiểm tra toàn repo. Lệnh npm run lint vẫn báo đúng các lỗi đó; lint:live dùng cùng quy tắc ESLint trên module thực sự thuộc bundle bàn giao. Đã vá dependency trong dải phiên bản tương thích. npm audit --omit=dev trả 0 lỗ hổng; toàn bộ dependency phát triển còn 9 cảnh báo mức moderate. Chưa áp dụng thay đổi phiên bản phá vỡ tương thích do npm audit --force đề xuất.
 
 Kết nối sàn hiện là cấu hình kênh thử và mapping. Chưa nghiệm thu OAuth/sàn thương mại thật. Trả hàng thuộc phạm vi tạo và tra cứu yêu cầu. QC, nhập trả, hoàn tiền và đối soát không thuộc luồng đã bàn giao.
+
+Phạm vi và checklist nghiệm thu của hai dev được đối chiếu trong [THINH_BACKEND_7DAY_CHECKLIST.md](THINH_BACKEND_7DAY_CHECKLIST.md).
