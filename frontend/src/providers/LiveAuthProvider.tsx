@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState, useCallback, ty
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { Profile, UserRole, Tenant, TenantMembership, TenantRole } from '@/types';
-import { getBackendSession } from '@/lib/backendSession';
+import { sessionService } from '@/services/session.service';
 
 interface AuthContextValue {
   session: Session | null;
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
     try {
       if (!next) return;
-      const verified = await getBackendSession(next.access_token, controller.signal);
+      const verified = await sessionService.me(next.access_token, controller.signal);
       if (verified.userId !== next.user.id) throw new Error('Tài khoản không khớp phiên đăng nhập.');
       if (controller.signal.aborted || current !== revision.current) return;
       const role = verified.roles.includes('admin') ? 'admin'

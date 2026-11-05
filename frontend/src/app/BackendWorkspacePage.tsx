@@ -1,40 +1,34 @@
 import { PageHeader } from '@/components/common/PageHeader';
 import { HierarchicalDataGrid } from '@/components/common/HierarchicalDataGrid';
 import { Modal } from '@/components/ui/Modal';
-import { Plus, RefreshCw, Store } from 'lucide-react';
+import { Pencil, Plus, RefreshCw, Store } from 'lucide-react';
 import { BackendPricingCalculator } from './BackendPricingCalculator';
 import { formatOrderMoney } from '@/lib/orderFormatting';
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { PageId } from '@/app/types';
 import { PAGE_META } from '@/app/navigation';
-import { OrderApiError, orderApiRequest } from '@/lib/backendOrders';
+import { ApiError } from '@/services/apiClient';
+import { channelsService } from '@/services/channels.service';
+import { workspaceService, type ApiRow } from '@/services/workspace.service';
 import { useAuth } from '@/providers/AuthProvider';
 import { formatDate } from '@/lib/utils';
 
-type Row = Record<string, unknown> & { id: string };
+type Row = ApiRow;
 type Column = readonly [key: string, label: string];
-type View = { endpoint: string; columns: readonly Column[] };
+type View = { load: (token: string, signal?: AbortSignal) => Promise<Row[]>; columns: readonly Column[] };
 const views: Partial<Record<PageId, View>> = {
-  skuEconomics: { endpoint: '/finance-summary/sku', columns: [['label', 'SKU'], ['orderCount', 'Đơn'], ['quantity', 'Số lượng'], ['revenue', 'Tiền hàng'], ['costOfGoods', 'Giá vốn'], ['cm1', 'Sau giá vốn']] },
-  channelEconomics: { endpoint: '/finance-summary/channels', columns: [['label', 'Tài khoản kênh'], ['orderCount', 'Đơn'], ['revenue', 'Giá trị đơn'], ['costOfGoods', 'Giá vốn'], ['operatingFees', 'Phí vận hành'], ['advertisingFees', 'Quảng cáo'], ['cm1', 'CM1'], ['cm2', 'CM2'], ['cm3', 'CM3']] },
-  customers: { endpoint: '/customers', columns: [['name', 'Tên'], ['phone', 'Điện thoại'], ['email', 'Email']] },
-  inventory: { endpoint: '/inventory', columns: [['warehouseCode', 'Kho'], ['productSku', 'SKU'], ['productName', 'Sản phẩm'], ['stock', 'Tồn thực tế'], ['reserved', 'Đang giữ'], ['pendingQc', 'Chờ kiểm'], ['incoming', 'Sắp về'], ['available', 'Khả dụng']] },
+  skuEconomics: { load: workspaceService.listSkuEconomics, columns: [['label', 'SKU'], ['orderCount', 'Đơn'], ['quantity', 'Số lượng'], ['revenue', 'Tiền hàng'], ['costOfGoods', 'Giá vốn'], ['cm1', 'Sau giá vốn']] },
+  channelEconomics: { load: workspaceService.listChannelEconomics, columns: [['label', 'Tài khoản kênh'], ['orderCount', 'Đơn'], ['revenue', 'Giá trị đơn'], ['costOfGoods', 'Giá vốn'], ['operatingFees', 'Phí vận hành'], ['advertisingFees', 'Quảng cáo'], ['cm1', 'CM1'], ['cm2', 'CM2'], ['cm3', 'CM3']] },
+  customers: { load: workspaceService.listCustomers, columns: [['name', 'Tên'], ['phone', 'Điện thoại'], ['email', 'Email']] },
+  inventory: { load: workspaceService.listInventory, columns: [['warehouseCode', 'Kho'], ['productSku', 'SKU'], ['productName', 'Sản phẩm'], ['stock', 'Tồn thực tế'], ['reserved', 'Đang giữ'], ['pendingQc', 'Chờ kiểm'], ['incoming', 'Sắp về'], ['available', 'Khả dụng']] },
 
 };
 const transactionColumns: Column[] = [['createdAt', 'Thời điểm'], ['type', 'Loại'], ['quantityDelta', 'Thay đổi'], ['referenceType', 'Nguồn'], ['referenceId', 'Mã tham chiếu']];
 const mappingColumns: Column[] = [['channelSku', 'SKU trên kênh'], ['productSku', 'SKU nội bộ'], ['productName', 'Sản phẩm']];
 
-async function fetchRows(endpoint: string, token: string, signal?: AbortSignal): Promise<Row[]> {
-  const value = await orderApiRequest('/api/v1' + endpoint, token, signal);
-  if (!Array.isArray(value) || value.some(row => !row || typeof row.id !== 'string')) {
-    throw new Error('Danh sách trả về không hợp lệ.');
-  }
-  return value;
-}
-
-const moneyKeys = new Set(['revenue', 'costOfGoods', 'operatingFees', 'advertisingFees', 'cm1', 'cm2', 'cm3']);
+const moneyKeys = new Set(['revenue', 'costOfGoods', 'operatingFees', 'advertisingFees', 'cm1', 'cm2', 'cm3', 'costPrice']);
 function cell(value: unknown, key: string): string {
-  if (moneyKeys.has(key)) return typeof value === 'string' ? formatOrderMoney(value) : 'Chưa đủ dữ liệu';
+  if (moneyKeys.has(key)) return typeof value === 'string' || typeof value === 'number' ? formatOrderMoney(value) : 'Chưa đủ dữ liệu';
   if (typeof value === 'string') return key === 'createdAt' ? formatDate(value) : value;
   return typeof value === 'number' ? value.toLocaleString('vi-VN', { maximumFractionDigits: 5 }) : '—';
 }
@@ -97,21 +91,21 @@ function ChannelCards({ rows, onEdit, onRemove }: {
   </ul>;
 }
 
-function useRows(endpoint: string | undefined, revision: number) {
+function useRows(load: ((token: string, signal?: AbortSignal) => Promise<Row[]>) | undefined, revision: number) {
   const { session } = useAuth();
   const token = session?.access_token;
   const [state, setState] = useState<{ rows: Row[]; error?: string; loading: boolean }>({ rows: [], loading: true });
   useEffect(() => {
     const controller = new AbortController();
-    setState({ rows: [], loading: !!endpoint });
-    if (!endpoint || !token) return () => controller.abort();
-    void fetchRows(endpoint, token, controller.signal).then(rows => {
+    setState({ rows: [], loading: !!load });
+    if (!load || !token) return () => controller.abort();
+    void load(token, controller.signal).then(rows => {
       if (!controller.signal.aborted) setState({ rows, loading: false });
     }).catch((error: unknown) => {
       if (!controller.signal.aborted) setState({ rows: [], error: error instanceof Error ? error.message : 'Không tải được dữ liệu.', loading: false });
     });
     return () => controller.abort();
-  }, [endpoint, token, revision]);
+  }, [load, token, revision]);
   return state;
 }
 
@@ -139,11 +133,11 @@ function CustomerForm({ onCreated }: { onCreated: () => void }) {
     setBusy(true);
     setError('');
     try {
-      await orderApiRequest('/api/v1/customers', session.access_token, undefined, { name, phone, email });
+      await workspaceService.createCustomer({ name, phone, email }, session.access_token);
       form.reset();
       onCreated();
     } catch (cause) {
-      setError(cause instanceof OrderApiError && cause.status < 500 ? cause.message : 'Chưa xác nhận được kết quả. Kiểm tra danh sách trước khi lưu lại để tránh tạo trùng.');
+      setError(cause instanceof ApiError && cause.status < 500 ? cause.message : 'Chưa xác nhận được kết quả. Kiểm tra danh sách trước khi lưu lại để tránh tạo trùng.');
       onCreated();
     } finally { inFlight.current = false; setBusy(false); }
   }
@@ -161,95 +155,91 @@ function CustomerForm({ onCreated }: { onCreated: () => void }) {
   </details>;
 }
 
-function StockForm({ onSaved }: { onSaved: () => void }) {
+type InventoryAction = 'receipt' | 'increase' | 'decrease';
+
+function InventoryAdjustmentModal({ item, onClose, onSaved }: { item: Row; onClose: () => void; onSaved: () => void }) {
   const { session } = useAuth();
-  const products = useRows('/products?status=active', 0);
-  const warehouses = useRows('/warehouses?status=active', 0);
-  type Change = { warehouseId: string; productId: string; quantity: number; idempotencyKey: string; operation: 'receipts' | 'adjustments' };
-  const key = 'nexus-pending-stock:' + session?.user.id;
-  const [pending, setPending] = useState<Change | null>(() => {
-    try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); }
-    catch { return null; }
-  });
+  const [action, setAction] = useState<InventoryAction | null>(null);
+  const [quantity, setQuantity] = useState('');
   const [busy, setBusy] = useState(false);
-  const inFlight = useRef(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [idempotencyKey] = useState(() => 'inventory-ui:' + crypto.randomUUID());
+  const stock = Number(item.stock ?? 0); const reserved = Number(item.reserved ?? 0); const amount = Number(quantity);
+  const delta = action === 'decrease' ? -amount : amount;
+  const nextStock = stock + (Number.isFinite(delta) ? delta : 0);
+  const invalidDecrease = action === 'decrease' && Number.isFinite(amount) && amount > 0 && nextStock < reserved;
+  const labels: Record<InventoryAction, { title: string; detail: string }> = {
+    receipt: { title: 'Nhập hàng', detail: 'Ghi nhận hàng mới đã thực sự vào kho.' },
+    increase: { title: 'Điều chỉnh tăng', detail: 'Dùng khi kiểm kê thấy thực tế nhiều hơn hệ thống.' },
+    decrease: { title: 'Điều chỉnh giảm', detail: 'Dùng khi kiểm kê thiếu hàng, hỏng hoặc mất hàng.' },
+  };
+  async function save() {
+    if (!session || !action || !Number.isFinite(amount) || amount <= 0 || invalidDecrease) return;
+    setBusy(true); setError('');
+    const payload = { warehouseId: String(item.warehouseId), productId: String(item.productId), quantity: delta, idempotencyKey };
+    try {
+      if (action === 'receipt') await workspaceService.receiveInventory({ ...payload, quantity: amount }, session.access_token);
+      else await workspaceService.adjustInventory(payload, session.access_token);
+      onSaved(); onClose();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể cập nhật tồn kho.'); }
+    finally { setBusy(false); }
+  }
+  return <Modal open title={action ? labels[action].title : 'Điều chỉnh tồn kho'} onClose={() => { if (!busy) onClose(); }}>
+    {!action ? <div className="space-y-3"><p className="text-sm text-ink-600">{cell(item.warehouseCode, 'warehouseCode')} · <strong>{cell(item.productSku, 'productSku')} — {cell(item.productName, 'productName')}</strong></p><div className="grid gap-2"><button className="rounded-xl border border-ink-200 p-3 text-left hover:border-brand-500 hover:bg-brand-50" onClick={() => setAction('receipt')}><b>Nhập hàng</b><span className="mt-1 block text-xs text-ink-600">Hàng mới đã vào kho.</span></button><button className="rounded-xl border border-ink-200 p-3 text-left hover:border-brand-500 hover:bg-brand-50" onClick={() => setAction('increase')}><b>Điều chỉnh tăng</b><span className="mt-1 block text-xs text-ink-600">Kiểm kê thực tế nhiều hơn hệ thống.</span></button><button className="rounded-xl border border-ink-200 p-3 text-left hover:border-brand-500 hover:bg-brand-50" onClick={() => setAction('decrease')}><b>Điều chỉnh giảm</b><span className="mt-1 block text-xs text-ink-600">Thiếu, hỏng hoặc mất hàng sau kiểm kê.</span></button></div></div> : <div className="space-y-4"><div className="rounded-lg bg-ink-50 p-3 text-sm"><p className="font-semibold">{cell(item.productName, 'productName')}</p><p className="mt-1 text-ink-600">Kho: {cell(item.warehouseCode, 'warehouseCode')} · Đang giữ: {reserved.toLocaleString('vi-VN')}</p></div><label className="block font-medium">Số lượng<input autoFocus value={quantity} onChange={event => setQuantity(event.target.value)} type="number" min="0.001" step="0.001" className="input mt-1 w-full" placeholder="Nhập số lượng" /></label><div className="rounded-lg border border-brand-100 bg-brand-50 p-3 text-sm"><p>Tồn thực tế: <b>{stock.toLocaleString('vi-VN')}</b> → <b>{Number.isFinite(amount) && amount > 0 ? nextStock.toLocaleString('vi-VN') : '—'}</b></p><p className="mt-1">Khả dụng: <b>{(stock - reserved).toLocaleString('vi-VN')}</b> → <b>{Number.isFinite(amount) && amount > 0 ? (nextStock - reserved).toLocaleString('vi-VN') : '—'}</b></p></div>{invalidDecrease && <p role="alert" className="text-sm text-red-700">Không thể giảm dưới {reserved.toLocaleString('vi-VN')} sản phẩm đang giữ cho đơn.</p>}{error && <p role="alert" className="text-sm text-red-700">{error}</p>}<div className="flex justify-between gap-2"><button type="button" className="btn-secondary" disabled={busy} onClick={() => { setAction(null); setQuantity(''); setError(''); }}>Quay lại</button><button type="button" className="btn-primary" disabled={busy || !Number.isFinite(amount) || amount <= 0 || invalidDecrease} onClick={() => { void save(); }}>{busy ? 'Đang lưu…' : 'Xác nhận thay đổi'}</button></div></div>}
+  </Modal>;
+}
+
+function InventoryTable({ rows, onAdjust }: { rows: Row[]; onAdjust: (item: Row) => void }) {
+  const columns: Column[] = [['warehouseCode', 'Kho'], ['productSku', 'SKU'], ['productName', 'Sản phẩm'], ['stock', 'Tồn thực tế'], ['reserved', 'Đang giữ'], ['pendingQc', 'Chờ kiểm'], ['incoming', 'Sắp về'], ['available', 'Khả dụng']];
+  return <HierarchicalDataGrid<Row> data={rows} rowKey={row => row.id} searchPlaceholder="Tìm trong danh sách" searchFilter={(row, query) => columns.some(([key]) => cell(row[key], key).toLocaleLowerCase('vi').includes(query))} groups={[{ id: 'inventory', title: 'Tồn kho', columns: [...columns.map(([key, header]) => ({ id: key, header, accessor: (row: Row) => cell(row[key], key), align: ['stock', 'reserved', 'pendingQc', 'incoming', 'available'].includes(key) ? 'right' : 'left' })), { id: 'action', header: 'Thao tác', accessor: (row: Row) => <button type="button" className="btn-secondary p-2" onClick={() => onAdjust(row)} aria-label={'Điều chỉnh tồn ' + cell(row.productName, 'productName')} title="Điều chỉnh tồn"><Pencil size={16} /></button> }] }]} />;
+}
+
+function ProductForm({ initial, onSaved, onClose }: { initial?: Row; onSaved: () => void; onClose: () => void }) {
+  const { session } = useAuth();
+  const brands = useRows(workspaceService.listBrands, 0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session || inFlight.current) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const operation = data.get('operation') === 'adjustments' ? 'adjustments' : 'receipts';
-    const change = pending ?? {
-      warehouseId: String(data.get('warehouseId') ?? ''),
-      productId: String(data.get('productId') ?? ''),
-      quantity: Number(data.get('quantity')),
-      idempotencyKey: 'web-stock:' + crypto.randomUUID(),
-      operation,
+    if (!session) return;
+    const data = new FormData(event.currentTarget);
+    const body = {
+      brandId: String(data.get('brandId') ?? '') || null,
+      sku: String(data.get('sku') ?? '').trim(),
+      name: String(data.get('name') ?? '').trim(),
+      costPrice: Number(data.get('costPrice')),
+      ...(initial ? { isActive: true } : {}),
     };
-    if (!change.quantity || (change.operation === 'receipts' && change.quantity < 0)) {
-      setError('Nhập số lượng dương khi nhập kho, hoặc số khác 0 khi điều chỉnh.');
-      return;
-    }
-    inFlight.current = true;
-    setBusy(true);
-    setError('');
-    setNotice('');
+    setBusy(true); setError('');
     try {
-      sessionStorage.setItem(key, JSON.stringify(change));
-      setPending(change);
-      const { operation: action, ...payload } = change;
-      try {
-        await orderApiRequest('/api/v1/inventory/' + action, session.access_token, undefined, payload);
-      } catch (cause) {
-        if (!(cause instanceof OrderApiError) || cause.status !== 409) throw cause;
-        const params = new URLSearchParams({ warehouseId: change.warehouseId, productId: change.productId });
-        const ledger = await fetchRows('/inventory/transactions?' + params, session.access_token);
-        const type = action === 'receipts' ? 'inbound' : 'adjustment';
-        if (!ledger.some(row => row.idempotencyKey === change.idempotencyKey && row.type === type && row.quantityDelta === change.quantity)) throw cause;
-      }
-      sessionStorage.removeItem(key);
-      setPending(null);
-      form.reset();
-      setNotice('Đã ghi nhận thay đổi tồn kho.');
-      onSaved();
+      await (initial ? workspaceService.updateProduct(initial.id, body, session.access_token) : workspaceService.createProduct(body, session.access_token));
+      onSaved(); onClose();
     } catch (cause) {
-      if (cause instanceof OrderApiError && [400, 404, 409, 422].includes(cause.status)) {
-        sessionStorage.removeItem(key);
-        setPending(null);
-      }
-      setError(cause instanceof Error ? cause.message : 'Chưa xác nhận được thay đổi tồn kho.');
-    } finally { inFlight.current = false; setBusy(false); }
+      setError(cause instanceof Error ? cause.message : 'Chưa lưu được sản phẩm.');
+    } finally { setBusy(false); }
   }
-  return <details className="rounded-xl border border-ink-200 bg-white p-4" open={pending ? true : undefined}>
-    <summary className="cursor-pointer font-semibold">Nhập kho hoặc điều chỉnh tồn</summary>
-    <form className="mt-4 space-y-3" onSubmit={event => { void submit(event); }}>
-      {(products.error || warehouses.error) && <p role="alert">{products.error ?? warehouses.error}</p>}
-      <fieldset disabled={busy || !!pending} className="grid gap-3 sm:grid-cols-2">
-        <label>Thao tác<select name="operation" className="block w-full rounded border p-2" defaultValue={pending?.operation ?? 'receipts'}>
-          <option value="receipts">Nhập kho</option><option value="adjustments">Điều chỉnh tăng/giảm</option>
-        </select></label>
-        <label>Số lượng thay đổi<input name="quantity" type="number" step="0.001" required defaultValue={pending?.quantity} className="block w-full rounded border p-2" /></label>
-        <label>Kho<select name="warehouseId" required defaultValue={pending?.warehouseId ?? ''} className="block w-full rounded border p-2">
-          <option value="">Chọn kho</option>{warehouses.rows.map(row => <option key={row.id} value={row.id}>{cell(row.code, 'code')} · {cell(row.name, 'name')}</option>)}
-        </select></label>
-        <label>Sản phẩm<select name="productId" required defaultValue={pending?.productId ?? ''} className="block w-full rounded border p-2">
-          <option value="">Chọn sản phẩm</option>{products.rows.map(row => <option key={row.id} value={row.id}>{cell(row.sku, 'sku')} · {cell(row.name, 'name')}</option>)}
-        </select></label>
+  return <Modal open title={initial ? 'Sửa sản phẩm' : 'Thêm sản phẩm'} onClose={() => { if (!busy) onClose(); }}>
+    <form className="space-y-4" onSubmit={event => { void submit(event); }}>
+      <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-2">
+        <label>SKU nội bộ<input required name="sku" maxLength={100} defaultValue={initial ? cell(initial.sku, 'sku') : ''} className="block w-full rounded border p-2" /></label>
+        <label>Tên sản phẩm<input required name="name" maxLength={200} defaultValue={initial ? cell(initial.name, 'name') : ''} className="block w-full rounded border p-2" /></label>
+        <label>Brand<select name="brandId" defaultValue={initial?.brandId as string | undefined ?? ''} className="block w-full rounded border p-2"><option value="">Chưa gán brand</option>{brands.rows.map(row => <option key={row.id} value={row.id}>{cell(row.name, 'name')}</option>)}</select></label>
+        <label>Giá vốn<input required name="costPrice" type="number" min="0" step="0.01" defaultValue={initial ? String(initial.costPrice ?? '') : ''} className="block w-full rounded border p-2" /></label>
       </fieldset>
-      {error && <p role="alert" className="text-red-700">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
-      <button type="submit" className="btn-primary" disabled={busy || (!pending && (!products.rows.length || !warehouses.rows.length))}>
-        {busy ? 'Đang kiểm tra…' : pending ? 'Kiểm tra lại yêu cầu kho' : 'Ghi nhận thay đổi tồn'}
-      </button>
+      {(error || brands.error) && <p role="alert" className="text-red-700">{error || brands.error}</p>}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="btn-primary" disabled={busy || brands.loading}>{busy ? 'Đang lưu…' : 'Lưu sản phẩm'}</button></div>
     </form>
-  </details>;
+  </Modal>;
+}
+
+function ProductTable({ rows, canManage, onEdit, onDeactivate }: { rows: Row[]; canManage: boolean; onEdit: (product: Row) => void; onDeactivate: (product: Row) => void }) {
+  if (!rows.length) return <p className="card p-8 text-center text-sm text-ink-600">Chưa có sản phẩm phù hợp.</p>;
+  return <div className="card overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-ink-200 text-ink-600"><tr>{['SKU', 'Tên sản phẩm', 'Brand', 'Giá vốn', 'Tồn kho', 'Khả dụng'].map(header => <th key={header} className="px-4 py-3 font-semibold">{header}</th>)}{canManage && <th className="px-4 py-3 font-semibold">Thao tác</th>}</tr></thead><tbody>{rows.map(row => <tr key={row.id} className="border-b border-ink-100 last:border-0"><td className="px-4 py-3 font-mono">{cell(row.sku, 'sku')}</td><td className="px-4 py-3 font-medium">{cell(row.name, 'name')}</td><td className="px-4 py-3">{cell(row.brandName, 'brandName')}</td><td className="px-4 py-3 text-right tabular-nums">{cell(row.costPrice, 'costPrice')}</td><td className="px-4 py-3 text-right tabular-nums">{cell(row.stock, 'stock')}</td><td className="px-4 py-3 text-right tabular-nums">{cell(row.available, 'available')}</td>{canManage && <td className="px-4 py-3"><div className="flex gap-2"><button type="button" className="btn-secondary" onClick={() => onEdit(row)}>Sửa</button><button type="button" className="btn-secondary text-red-700" onClick={() => onDeactivate(row)}>Ngừng</button></div></td>}</tr>)}</tbody></table></div>;
 }
 
 function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: string; initial?: Row; onSaved: () => void; onClose: () => void }) {
   const { session } = useAuth();
-  const products = useRows(connection ? '/products?status=active' : undefined, 0);
+  const products = useRows(connection ? workspaceService.listProducts : undefined, 0);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [error, setError] = useState('');
@@ -259,7 +249,6 @@ function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: s
     if (!session || inFlight.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
-    const endpoint = connection ? '/' + encodeURIComponent(connection) + '/sku-mappings' : initial ? '/' + encodeURIComponent(initial.id) : '';
     const body = connection
       ? { productId: data.get('productId'), channelSku: String(data.get('channelSku')).trim() }
       : { type: data.get('type'), accountName: String(data.get('accountName')).trim(), ...(initial ? { status: data.get('status') } : {}) };
@@ -267,7 +256,7 @@ function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: s
     setBusy(true);
     setError('');
     try {
-      await orderApiRequest('/api/v1/channel-connections' + endpoint, session.access_token, undefined, body, undefined, initial ? 'PUT' : undefined);
+      await (connection ? channelsService.createMapping(connection, body, session.access_token) : initial ? channelsService.update(initial.id, body, session.access_token) : channelsService.create(body, session.access_token));
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Chưa xác nhận được kết quả.');
@@ -308,7 +297,7 @@ function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: s
 }
 
 function RemoveChannelResource({ target, onClose, onRemoved }: {
-  target: { path: string; label: string };
+  target: { label: string; remove: () => Promise<unknown> };
   onClose: () => void;
   onRemoved: () => void;
 }) {
@@ -320,8 +309,8 @@ function RemoveChannelResource({ target, onClose, onRemoved }: {
     if (!session || lock.current) return;
     lock.current = true; setBusy(true); setError('');
     try {
-      try { await orderApiRequest(target.path, session.access_token, undefined, undefined, undefined, 'DELETE'); }
-      catch (cause) { if (!(cause instanceof OrderApiError) || cause.status !== 404) throw cause; }
+      try { await target.remove(); }
+      catch (cause) { if (!(cause instanceof ApiError) || cause.status !== 404) throw cause; }
       onRemoved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Chưa xác nhận được kết quả xóa. Tải lại danh sách để kiểm tra.');
@@ -342,23 +331,47 @@ const unavailable: Partial<Record<PageId, string>> = {
 };
 
 export function BackendWorkspacePage({ page, search }: { page: PageId; search: string }) {
+  const { session, activeRole } = useAuth();
   const view = views[page];
+  const isProducts = page === 'products';
+  const canManageProducts = activeRole === 'admin' || activeRole === 'manager';
   const isConnections = page === 'channelConnections';
   const isMapping = page === 'channelMapping';
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Row | undefined>();
-  const [removeTarget, setRemoveTarget] = useState<{ path: string; label: string } | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Row | undefined>();
+  const [productFormOpen, setProductFormOpen] = useState(false);
+  const [productError, setProductError] = useState('');
+  const [removeTarget, setRemoveTarget] = useState<{ label: string; remove: () => Promise<unknown> } | null>(null);
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState('');
   const [transactions, setTransactions] = useState(false);
-  const list = useRows(isConnections || isMapping ? '/channel-connections' : view?.endpoint, revision);
-  const mapping = useRows(page === 'channelMapping' && selection ? '/channel-connections/' + encodeURIComponent(selection) + '/sku-mappings' : undefined, revision);
-  const ledger = useRows(page === 'inventory' && transactions ? '/inventory/transactions' : undefined, revision);
-  const query = search.trim().toLocaleLowerCase('vi');
+  const [adjustingInventory, setAdjustingInventory] = useState<Row | null>(null);
+  const [localSearch, setLocalSearch] = useState('');
+  const mappingLoader = useCallback((token: string, signal?: AbortSignal) => channelsService.listMappings(selection, token, signal), [selection]);
+  const list = useRows(isProducts ? workspaceService.listProducts : isConnections || isMapping ? channelsService.list : view?.load, revision);
+  const productInventory = useRows(isProducts ? workspaceService.listInventory : undefined, revision);
+  const mapping = useRows(page === 'channelMapping' && selection ? mappingLoader : undefined, revision);
+  const ledger = useRows(page === 'inventory' && transactions ? workspaceService.listInventoryTransactions : undefined, revision);
+  const query = (localSearch || search).trim().toLocaleLowerCase('vi');
   const rows = list.rows.filter(row => !query || Object.values(row).some(value =>
     typeof value === 'string' && value.toLocaleLowerCase('vi').includes(query)));
+  const productRows = rows.map(row => {
+    const totals = productInventory.rows.filter(item => item.productId === row.id).reduce((sum, item) => ({ stock: sum.stock + Number(item.stock ?? 0), available: sum.available + Number(item.available ?? 0) }), { stock: 0, available: 0 });
+    return { ...row, ...totals };
+  });
+  const productState = { rows: productRows, loading: list.loading || productInventory.loading, error: list.error ?? productInventory.error };
+  async function deactivateProduct(product: Row) {
+    if (!session || !window.confirm(`Ngừng hoạt động sản phẩm ${cell(product.name, 'name')}?`)) return;
+    setProductError('');
+    try {
+      await workspaceService.deactivateProduct(product.id, session.access_token);
+      setRevision(n => n + 1);
+    } catch (cause) { setProductError(cause instanceof Error ? cause.message : 'Chưa cập nhật được trạng thái sản phẩm.'); }
+  }
   return <section className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
     <PageHeader title={PAGE_META[page].title} subtitle={PAGE_META[page].subtitle} actions={<>
+      {(view || isConnections || isMapping || isProducts) && <input aria-label={PAGE_META[page].searchPlaceholder} value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder={PAGE_META[page].searchPlaceholder} className="input w-56 text-sm" />}
       {(view || isConnections || isMapping) && <button className="btn-secondary" type="button" onClick={() => setRevision(n => n + 1)}>
         <RefreshCw size={16} aria-hidden="true" /> Tải lại
       </button>}
@@ -366,21 +379,26 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
         disabled={isMapping && !selection} onClick={() => { setEditingChannel(undefined); setChannelFormOpen(true); }}>
         <Plus size={16} aria-hidden="true" /> {isMapping ? 'Thêm ánh xạ SKU' : 'Thêm tài khoản kênh'}
       </button>}
+      {isProducts && canManageProducts && <button className="btn-primary" type="button" onClick={() => { setEditingProduct(undefined); setProductFormOpen(true); }}><Plus size={16} aria-hidden="true" /> Thêm sản phẩm</button>}
     </>} />
     {page === 'pricingCalculator' && <BackendPricingCalculator />}
     {page === 'skuEconomics' && <p className="text-sm text-ink-600">Tổng tiền hàng và giá vốn theo SKU của đơn chưa hủy. Phí cấp đơn không phân bổ xuống SKU.</p>}
     {page === 'channelEconomics' && <p className="text-sm text-ink-600">Tổng CM1–CM3 theo kênh của đơn chưa hủy. Kết quả có thể bao gồm đơn đang xử lý.</p>}
     {unavailable[page] && <p className="rounded-xl border border-ink-200 bg-white p-4 text-ink-700">{unavailable[page]}</p>}
     {page === 'customers' && <CustomerForm onCreated={() => setRevision(n => n + 1)} />}
-    {page === 'inventory' && <StockForm onSaved={() => setRevision(n => n + 1)} />}
+    {isProducts && <Result state={productState}><ProductTable rows={productRows} canManage={canManageProducts} onEdit={product => { setEditingProduct(product); setProductFormOpen(true); }} onDeactivate={product => { void deactivateProduct(product); }} /></Result>}
+    {productError && <p role="alert" className="text-red-700">{productError}</p>}
+    {productFormOpen && <ProductForm initial={editingProduct} onClose={() => setProductFormOpen(false)} onSaved={() => setRevision(n => n + 1)} />}
     {isConnections && <Result state={list}><ChannelCards rows={rows}
       onEdit={row => { setEditingChannel(row); setChannelFormOpen(true); }}
-      onRemove={row => setRemoveTarget({ path: '/api/v1/channel-connections/' + encodeURIComponent(row.id), label: 'tài khoản ' + cell(row.accountName, 'accountName') })} /></Result>}
+      onRemove={row => setRemoveTarget({ label: 'tài khoản ' + cell(row.accountName, 'accountName'), remove: () => channelsService.remove(row.id, session?.access_token ?? '') })} /></Result>}
     {channelFormOpen && <ChannelForm initial={editingChannel} connection={isMapping ? selection : undefined}
       onClose={() => setChannelFormOpen(false)} onSaved={() => setRevision(n => n + 1)} />}
     {removeTarget && <RemoveChannelResource target={removeTarget} onClose={() => setRemoveTarget(null)}
       onRemoved={() => { setRemoveTarget(null); setRevision(n => n + 1); }} />}
-    {view && <Result state={list}><RowsTable rows={rows} columns={view.columns} /></Result>}
+    {page === 'inventory' && <Result state={list}><InventoryTable rows={rows} onAdjust={setAdjustingInventory} /></Result>}
+    {adjustingInventory && <InventoryAdjustmentModal item={adjustingInventory} onClose={() => setAdjustingInventory(null)} onSaved={() => setRevision(n => n + 1)} />}
+    {view && page !== 'inventory' && <Result state={list}><RowsTable rows={rows} columns={view.columns} /></Result>}
     {page === 'inventory' && <section className="space-y-3">
       <button className="btn-secondary" type="button" onClick={() => setTransactions(value => !value)}>
         {transactions ? 'Ẩn lịch sử kho' : 'Xem lịch sử kho'}
@@ -408,8 +426,8 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
             { id: 'mapping_actions', title: 'Thao tác', columns: [{
               id: 'remove', header: 'Xóa ánh xạ', accessor: row => <button type="button" className="btn-secondary text-red-700"
                 onClick={() => setRemoveTarget({
-                  path: '/api/v1/channel-connections/' + encodeURIComponent(selection) + '/sku-mappings/' + encodeURIComponent(row.id),
                   label: 'ánh xạ ' + cell(row.channelSku, 'channelSku'),
+                  remove: () => channelsService.removeMapping(selection, row.id, session?.access_token ?? ''),
                 })}>Xóa ánh xạ</button>,
             }] },
           ]} />

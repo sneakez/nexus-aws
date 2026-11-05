@@ -15,7 +15,8 @@ public sealed class OrderCommandsController(
     OrderCreationService creation,
     OrderCancellationService cancellation,
     OrderShippingService shipping,
-    OrderProgressService progress) : ControllerBase
+    OrderProgressService progress,
+    OrderService orders) : ControllerBase
 {
     private bool TryGetActor(out Guid actorId) => Guid.TryParse(
         User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier), out actorId)
@@ -36,6 +37,8 @@ public sealed class OrderCommandsController(
     public async Task<ActionResult<CancelOrderResult>> Cancel(Guid id, CancelOrderRequest request, CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actor)) return Unauthorized();
+        var blocked = await RejectMarketplaceOrderAsync(id, cancellationToken);
+        if (blocked is not null) return blocked;
         var result = await cancellation.CancelAsync(id, request, actor, cancellationToken);
         return result is null ? NotFound() : Ok(result);
     }
@@ -44,6 +47,8 @@ public sealed class OrderCommandsController(
     public async Task<ActionResult<ShipOrderResult>> Ship(Guid id, ShipOrderRequest request, CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actor)) return Unauthorized();
+        var blocked = await RejectMarketplaceOrderAsync(id, cancellationToken);
+        if (blocked is not null) return blocked;
         var result = await shipping.ShipAsync(id, request, actor, cancellationToken);
         return result is null ? NotFound() : Ok(result);
     }
@@ -60,7 +65,16 @@ public sealed class OrderCommandsController(
     private async Task<IActionResult> Advance(Guid id, string operation, OrderProgressRequest request, CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actor)) return Unauthorized();
+        var blocked = await RejectMarketplaceOrderAsync(id, cancellationToken);
+        if (blocked is not null) return blocked;
         var result = await progress.AdvanceAsync(id, operation, request, actor, cancellationToken);
         return result is null ? NotFound() : Ok(result);
+    }
+
+    private async Task<ActionResult?> RejectMarketplaceOrderAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var order = await orders.GetAsync(id, cancellationToken);
+        if (order is null) return NotFound();
+        return order.ChannelConnectionId is null ? null : Conflict(new { message = "Đơn từ sàn chỉ được cập nhật trạng thái bằng webhook." });
     }
 }

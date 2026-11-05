@@ -43,8 +43,7 @@ export type Permission =
   | 'webhooks:manage';
 
 const ROLE_PERMISSIONS: Record<TenantRole, readonly Permission[]> = {
-  // R1 — Owner / Founder: Unrestricted governance, final approvals, audit review
-  owner: [
+  admin: [
     'orders:view', 'orders:create', 'orders:manage', 'orders:cancel', 'orders:delete',
     'inventory:view', 'inventory:receive', 'inventory:move', 'inventory:adjust', 'inventory:mutate',
     'products:view', 'products:manage', 'warehouses:manage',
@@ -56,13 +55,6 @@ const ROLE_PERMISSIONS: Record<TenantRole, readonly Permission[]> = {
     'simulator:access', 'webhooks:manage',
   ],
 
-  // R2 — System Administrator: Systems, integrations, users (no financial approvals)
-  admin: [
-    'orders:view', 'inventory:view', 'products:view', 'audit:view',
-    'users:manage', 'integrations:manage', 'settings:manage', 'simulator:access', 'webhooks:manage',
-  ],
-
-  // R3 — Operations / Commerce Manager: Multi-channel orders, fulfillment, RMA, inventory
   manager: [
     'orders:view', 'orders:create', 'orders:manage', 'orders:cancel',
     'inventory:view', 'inventory:receive', 'inventory:move', 'inventory:mutate',
@@ -74,7 +66,6 @@ const ROLE_PERMISSIONS: Record<TenantRole, readonly Permission[]> = {
     'simulator:access',
   ],
 
-  // R4 — Warehouse Operator: Stock receipt, wave picking, packing, stock movements
   warehouse: [
     'orders:view',
     'inventory:view', 'inventory:receive', 'inventory:move', 'inventory:mutate',
@@ -82,25 +73,6 @@ const ROLE_PERMISSIONS: Record<TenantRole, readonly Permission[]> = {
     'purchasing:view',
   ],
 
-  // R5 — Finance / Accountant: Ledger, reconciliation, fee audit, financial records
-  finance: [
-    'orders:view',
-    'purchasing:view',
-    'finance:view', 'finance:reconcile', 'finance:adjust', 'finance:manage',
-    'analytics:view', 'audit:view',
-  ],
-
-  // R6 — Growth / Marketing: Campaigns, ROAS, funnel, KOC, attributed orders
-  growth: [
-    'orders:view',
-    'products:view',
-    'inventory:view',
-    'growth:view', 'growth:manage',
-    'analytics:view',
-  ],
-
-  // R7 — Read-only Analyst: Authorized reports and analytics
-  viewer: [],
 };
 
 export function hasPermission(role: TenantRole | null | undefined, permission: Permission): boolean {
@@ -112,7 +84,7 @@ export function hasPermission(role: TenantRole | null | undefined, permission: P
 function getRolePages(role: TenantRole | null | undefined): string[] {
   if (!role) return ['dashboard'];
   switch (role) {
-    case 'owner':
+    case 'admin':
       return [
         'dashboard', 'inventory',
         'orders', 'fulfillment', 'returns', 'customers',
@@ -131,12 +103,6 @@ function getRolePages(role: TenantRole | null | undefined): string[] {
     case 'warehouse':
       return ['dashboard', 'inventory', 'orders', 'fulfillment', 'returns'];
 
-    case 'admin':
-    case 'finance':
-    case 'growth':
-    case 'viewer':
-      return [];
-
     default:
       return ['dashboard'];
   }
@@ -146,8 +112,8 @@ function getRolePages(role: TenantRole | null | undefined): string[] {
 export const OPTIONAL_PAGES = new Set<string>();
 export function getAllowedPagesForRole(role: TenantRole | null | undefined, backendMode = false): string[] {
   if (backendMode) {
-    if (role === 'admin' || role === 'manager') return getRolePages('owner').filter(page => page !== 'simulator' && page !== 'cashWorkingCapital');
-    return role === 'warehouse' ? getRolePages('warehouse') : [];
+    if (role === 'admin' || role === 'manager') return [...getRolePages('admin').filter(page => page !== 'cashWorkingCapital' && page !== 'simulator'), 'products'];
+    return role === 'warehouse' ? [...getRolePages('warehouse'), 'products'] : [];
   }
   return getRolePages(role);
 }

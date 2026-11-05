@@ -42,12 +42,12 @@ public sealed class PostgresOrderCreationRepository(
     {
         const string sql = """
         insert into public.orders (
-            id, customer_id, assigned_warehouse_id,
+            id, customer_id, channel_connection_id, assigned_warehouse_id,
             order_number, status,
             subtotal, tax, shipping_fee, total,
             idempotency_key, creation_request)
         values (
-            @id, @customerId, @warehouseId,
+            @id, @customerId, @channelConnectionId, @warehouseId,
             @orderNumber, 'pending',
             @subtotal, @tax, @shippingFee, @total,
             @key, @payload)
@@ -62,6 +62,9 @@ public sealed class PostgresOrderCreationRepository(
         command.Parameters.Add(
             "customerId", NpgsqlDbType.Uuid).Value =
             (object?)request.CustomerId ?? DBNull.Value;
+        command.Parameters.Add(
+            "channelConnectionId", NpgsqlDbType.Uuid).Value =
+            (object?)request.ChannelConnectionId ?? DBNull.Value;
 
         command.Parameters.AddWithValue(
             "warehouseId", request.WarehouseId);

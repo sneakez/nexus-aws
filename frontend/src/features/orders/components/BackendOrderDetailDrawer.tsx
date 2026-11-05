@@ -1,12 +1,10 @@
-import { BackendOrderReturns } from './BackendOrderReturns';
-import { BackendOrderFinance } from './BackendOrderFinance';
 import { BackendOrderActions } from './BackendOrderActions';
 import { BackendOrderHistory } from './BackendOrderHistory';
 import { useOrderDialogFocus } from './useOrderDialogFocus';
 import { useEffect, useRef, useState } from 'react';
 import { Drawer } from '@/components/ui/Drawer';
 import { useAuth } from '@/providers/AuthProvider';
-import { backendOrderStatuses, getBackendOrder, type BackendOrderDetail } from '@/lib/backendOrders';
+import { backendOrderStatuses, ordersService, type BackendOrderDetail } from '@/services/orders.service';
 import { formatDate } from '@/lib/utils';
 import { formatOrderMoney as formatCurrency } from '@/lib/orderFormatting';
 
@@ -25,7 +23,7 @@ export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orde
     setOrder(null);
     setError(null);
     if (!token) { setError('Vui lòng đăng nhập lại.'); return () => controller.abort(); }
-    void getBackendOrder(orderId, token, controller.signal)
+    void ordersService.get(orderId, token, controller.signal)
       .then(data => { if (!controller.signal.aborted) setOrder(data); })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Không tải được đơn.');
@@ -42,10 +40,9 @@ export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orde
           <dl className="grid grid-cols-2 gap-4 text-sm">
             <div><dt className="text-ink-600">Trạng thái</dt><dd className="mt-1 font-semibold">{backendOrderStatuses[order.status] ?? order.status}</dd></div>
             <div><dt className="text-ink-600">Ngày tạo</dt><dd className="mt-1">{formatDate(order.createdAt)}</dd></div>
+            <div><dt className="text-ink-600">Nguồn đơn</dt><dd className="mt-1 font-semibold">{order.channelConnectionId ? 'Sàn / webhook' : 'Đơn nội bộ'}</dd></div>
           </dl>
-          <p className="text-sm"><span className="text-ink-600">Khách hàng </span>
-            <strong>{order.customerName ?? (order.customerId ? 'Khách hàng đã liên kết' : 'Khách vãng lai')}</strong>
-          </p>
+          {order.customerName && <p className="text-sm"><span className="text-ink-600">Khách hàng </span><strong>{order.customerName}</strong></p>}
           <h3 className="font-semibold text-ink-900">Sản phẩm ({order.items.length})</h3>
           <ul className="divide-y divide-ink-100">
             {order.items.map(item => <li key={item.id} className="space-y-2 py-4 text-sm">
@@ -61,11 +58,10 @@ export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orde
             {[['Tiền hàng', order.subtotal], ['Thuế', order.tax], ['Phí giao hàng', order.shippingFee], ['Tổng tiền', order.total]].map(([label, amount]) =>
               <div key={label} className="flex justify-between gap-3"><dt>{label}</dt><dd className="font-semibold tabular-nums">{formatCurrency(amount)}</dd></div>)}
           </dl>
+          {order.channelConnectionId && <p className="rounded-lg bg-ink-50 p-3 text-sm text-ink-700">Trạng thái đơn sàn được đồng bộ từ webhook và không thể đổi thủ công.</p>}
           <BackendOrderActions key={order.id} order={order} onUpdated={message => {
             setNotice(message); setRevision(n => n + 1); onChanged?.();
           }} />
-          <BackendOrderReturns key={order.id} order={order} />
-          {canViewCost && <BackendOrderFinance key={order.id} orderId={order.id} />}
           <BackendOrderHistory orderId={order.id} revision={revision} />
         </>}
     </div>

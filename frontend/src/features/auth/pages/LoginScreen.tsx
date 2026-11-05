@@ -1,18 +1,7 @@
 import { useState } from 'react';
-import { Boxes, LogIn, Eye, EyeOff } from 'lucide-react';
-
-// Authentication feature screen.
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Link2, PackageCheck, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
-import { isMockMode } from '@/lib/config';
-import { omsStore as mockStore } from '@/stores/omsStore';
-
-const demoRoleLabels: Record<string, string> = {
-  owner: '👑 Owner', manager: '📊 Manager', warehouse: '📦 Kho',
-};
-
-interface LoginPageProps {
-  onNavigate?: (path: string) => void;
-}
+interface LoginPageProps { onNavigate?: (path: string) => void; }
 
 export function LoginPage({ onNavigate }: LoginPageProps) {
   const { signIn } = useAuth();
@@ -21,140 +10,32 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const demoAccounts = isMockMode() ? mockStore.getDemoLoginAccounts() : [];
+  const navigate = (path: string) => onNavigate ? onNavigate(path) : window.location.assign(path);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email || !password) {
-      setError('Vui lòng nhập email và mật khẩu');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const { error: signInError } = await signIn(email, password);
-      if (signInError) {
-        setError(signInError);
-      } else {
-        handleNav('/app');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không đăng nhập được. Vui lòng thử lại.');
-    } finally {
-      setLoading(false);
-    }
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!email || !password) { setError('Vui lòng nhập email và mật khẩu.'); return; }
+    setLoading(true); setError('');
+    try { const result = await signIn(email, password); if (result.error) setError(result.error); else navigate('/app'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không đăng nhập được. Vui lòng thử lại.'); }
+    finally { setLoading(false); }
   }
 
-  const handleNav = (p: string) => {
-    if (onNavigate) {
-      onNavigate(p);
-    } else if (typeof window !== 'undefined') {
-      window.location.href = p;
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-[#081B2C] relative overflow-hidden font-sans">
-      <div className="absolute top-0 left-0 w-96 h-96 rounded-full bg-[#1E647F]/20 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 rounded-full bg-[#27B4A0]/15 blur-3xl pointer-events-none" />
-
-      <div className="relative w-full max-w-md mx-4 py-8">
-        <div className="text-center mb-8">
-          <div 
-            onClick={() => handleNav('/')} 
-            className="inline-flex w-14 h-14 rounded-2xl bg-gradient-to-br from-[#1E647F] to-[#27B4A0] items-center justify-center shadow-lg shadow-[#1E647F]/50 mb-3 cursor-pointer"
-          >
-            <Boxes size={28} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Nexus<span className="text-[#27B4A0]">OMS</span></h1>
-          <p className="text-xs text-gray-400 mt-1">Prototype vận hành thương mại đa kênh FCAJ</p>
-        </div>
-
-        <div className="bg-[#0C2739] border border-[#1E647F]/50 rounded-2xl shadow-2xl p-8">
-          <div className="flex items-center gap-2 mb-6">
-            <div className="flex items-center gap-2">
-              <LogIn size={18} className="text-wood-aqua" />
-              <h2 className="text-base font-bold text-white">Đăng nhập tài khoản</h2>
-            </div>
-          </div>
-
-          {error && (
-            <div role="alert" className="mb-4 rounded-xl bg-rose-950/60 border border-rose-800/80 px-4 py-3 text-xs text-rose-300">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="login-email" className="block text-xs font-medium text-gray-300 mb-1.5">Email làm việc</label>
-              <input
-                id="login-email"
-                autoComplete="username"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={isMockMode() ? 'admin@nexusoms.io' : 'ban@congty.vn'}
-                className="w-full rounded-xl bg-[#081B2C] border border-[#1E647F]/50 px-3.5 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-wood-aqua"
-                disabled={loading}
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="login-password" className="block text-xs font-medium text-gray-300">Mật khẩu</label>
-              </div>
-              <div className="relative">
-                <input
-                  id="login-password"
-                  autoComplete="current-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full rounded-xl bg-[#081B2C] border border-[#1E647F]/50 px-3.5 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-wood-aqua pr-10"
-                  disabled={loading}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#1E647F] to-[#27B4A0] hover:from-[#174E64] hover:to-[#10B981] shadow-lg shadow-[#27B4A0]/20 transition-all disabled:opacity-50"
-            >
-              {loading ? 'Đang xác thực...' : 'Đăng nhập vào Hệ thống'}
-            </button>
-          </form>
-
-          {isMockMode() && <div className="mt-5 pt-4 border-t border-gray-800">
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2.5">
-              Bấm nhanh để điền tài khoản mẫu:
-            </p>
-            <p className="text-xs text-gray-300 mb-3">Chế độ demo: mật khẩu không được xác thực. Nút bên dưới điền sẵn thông tin để bạn thử từng vai trò.</p>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {demoAccounts.map(account => <button
-                key={`${account.role}:${account.email}`}
-                type="button"
-                data-demo-role={account.role}
-                disabled={loading}
-                onClick={() => { setEmail(account.email); setPassword('demo'); setError(''); }}
-                className="min-w-0 p-2 rounded-lg bg-[#081B2C] hover:bg-[#123A52] text-metal-mist border border-[#1E647F]/40 hover:text-white transition-colors text-center disabled:opacity-50"
-              >
-                <div className="font-bold text-wood-aqua">{demoRoleLabels[account.role]}</div>
-                <div className="text-[11px] text-gray-300 break-all">{account.email}</div>
-              </button>)}
-            </div>
-            {!demoAccounts.length && <p className="text-xs text-amber-300">Chưa có tài khoản demo hoạt động trong workspace này.</p>}
-          </div>}
-        </div>
+  return <main className="min-h-[100dvh] overflow-hidden bg-[#f4f8f8] text-[#102b3c]">
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-[38rem] bg-[radial-gradient(circle_at_12%_8%,rgba(39,180,160,0.20),transparent_30%),radial-gradient(circle_at_78%_0%,rgba(30,100,127,0.18),transparent_28%)]" />
+    <header className="relative mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-10">
+      <button type="button" onClick={() => navigate('/')} className="flex items-center gap-3 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#1e647f] focus:ring-offset-2"><img src="/branding/nexusoms-shark-transparent.png" alt="Logo cá mập NexusOMS" className="h-9 w-14 object-contain drop-shadow-[0_9px_12px_rgba(8,32,48,0.58)]" /><span><span className="block text-lg font-bold tracking-tight">Nexus<span className="text-[#1e647f]">OMS</span></span><span className="block text-[11px] font-medium text-slate-500">Operations management system</span></span></button>
+      <a href="#dang-nhap" className="rounded-lg border border-[#bfd4d8] bg-white/70 px-4 py-2 text-sm font-semibold text-[#174c63] transition hover:border-[#1e647f] hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#1e647f]">Đăng nhập</a>
+    </header>
+    <section className="relative mx-auto grid w-full max-w-7xl gap-10 px-5 pb-14 pt-8 sm:px-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(23rem,.85fr)] lg:items-center lg:px-10 lg:pb-20 lg:pt-14">
+      <div className="max-w-2xl"><p className="mb-5 inline-flex items-center gap-2 rounded-md border border-[#b9d8d4] bg-[#e6f3f0] px-3 py-1.5 text-xs font-semibold text-[#175f62]"><span className="size-1.5 rounded-full bg-[#27b4a0]" />Nền tảng vận hành cho đội bán hàng đa kênh</p><h1 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-[-0.045em] text-[#102b3c] sm:text-5xl lg:text-6xl">Từ đơn sàn đến tồn kho, <span className="text-[#1e647f]">một luồng vận hành rõ ràng.</span></h1><p className="mt-6 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">NexusOMS tập trung vào những việc đội vận hành cần nhìn thấy: đơn hàng được đồng bộ, SKU được ánh xạ, tồn kho được giữ chính xác và lợi nhuận được theo dõi theo từng đơn.</p>
+        <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">{[[Link2, 'Kết nối sàn', 'Ánh xạ SKU trước khi nhận đơn'], [PackageCheck, 'Kiểm soát tồn', 'Theo dõi tồn thực tế và khả dụng'], [ShieldCheck, 'Vận hành an toàn', 'Giữ tồn trước khi xuất kho']].map(([Icon, title, detail]) => <article key={String(title)} className="rounded-xl border border-[#dce8e9] bg-white/70 p-4 shadow-[0_12px_32px_rgba(21,64,79,0.05)]"><Icon size={19} className="text-[#1e647f]" aria-hidden="true" /><h2 className="mt-3 text-sm font-bold text-[#173c50]">{title as string}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{detail as string}</p></article>)}</div>
+        <section className="mt-10 max-w-xl border-l-2 border-[#27b4a0] pl-4" aria-label="Luồng vận hành"><p className="text-xs font-bold uppercase tracking-[0.15em] text-[#1e647f]">Luồng vận hành</p><p className="mt-2 text-sm font-medium text-[#315363]">Kết nối sàn <span className="mx-1 text-slate-400">→</span> Ánh xạ SKU <span className="mx-1 text-slate-400">→</span> Webhook <span className="mx-1 text-slate-400">→</span> Giữ tồn <span className="mx-1 text-slate-400">→</span> Theo dõi đơn</p></section>
       </div>
-    </div>
-  );
+      <section id="dang-nhap" className="rounded-2xl border border-[#d6e4e6] bg-white p-6 shadow-[0_24px_70px_rgba(16,54,75,0.14)] sm:p-8" aria-labelledby="login-title"><div className="flex items-start justify-between gap-4 border-b border-[#e7eff0] pb-5"><div><p className="text-xs font-bold uppercase tracking-[0.15em] text-[#1e647f]">Khu vực làm việc</p><h2 id="login-title" className="mt-2 text-2xl font-bold tracking-tight text-[#102b3c]">Đăng nhập hệ thống</h2></div><span className="grid size-10 place-items-center rounded-xl bg-[#eef7f5] text-[#1e647f]"><ArrowRight size={19} /></span></div><p className="mt-4 text-sm leading-6 text-slate-600">Dùng tài khoản đã được quản trị viên cấp quyền để vào không gian vận hành.</p>{error && <div role="alert" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4"><label className="block text-sm font-semibold text-[#25475a]">Email làm việc<input id="login-email" autoComplete="username" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="ban@congty.vn" disabled={loading} className="mt-1.5 w-full rounded-lg border border-[#cbdde0] bg-white px-3.5 py-3 text-sm text-[#102b3c] outline-none transition placeholder:text-slate-400 focus:border-[#1e647f] focus:ring-2 focus:ring-[#1e647f]/15 disabled:bg-slate-50" /></label><label className="block text-sm font-semibold text-[#25475a]">Mật khẩu<span className="relative mt-1.5 block"><input id="login-password" autoComplete="current-password" type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} placeholder="••••••••" disabled={loading} className="w-full rounded-lg border border-[#cbdde0] bg-white px-3.5 py-3 pr-11 text-sm text-[#102b3c] outline-none transition placeholder:text-slate-400 focus:border-[#1e647f] focus:ring-2 focus:ring-[#1e647f]/15 disabled:bg-slate-50" /><button type="button" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} onClick={() => setShowPassword(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 transition hover:text-[#1e647f] focus:outline-none focus:ring-2 focus:ring-[#1e647f]">{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label><button type="submit" disabled={loading} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1e647f] px-4 py-3 text-sm font-bold text-white shadow-[0_10px_22px_rgba(30,100,127,0.24)] transition hover:-translate-y-0.5 hover:bg-[#174e64] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-55">{loading ? 'Đang xác thực…' : <>Vào không gian làm việc <ArrowRight size={17} /></>}</button></form>
+      </section>
+    </section>
+    <footer className="relative mx-auto flex w-full max-w-7xl flex-col gap-2 border-t border-[#d9e6e7] px-5 py-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10"><span>© 2026 NexusOMS · MVP vận hành đa kênh</span><span className="inline-flex items-center gap-1.5"><CheckCircle2 size={14} className="text-[#27b4a0]" />Xác thực bằng Supabase</span></footer>
+  </main>;
 }

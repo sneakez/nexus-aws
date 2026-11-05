@@ -28,17 +28,21 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
                 reader.GetFieldValue<DateTimeOffset>(5)));
         return entries;
     }
-    public async Task<IReadOnlyList<OrderSummary>> ListAsync(
+    public async Task<IReadOnlyList<OrderSummary>> ListAsync(DateOnly? from, DateOnly? to,
         CancellationToken cancellationToken = default)
     {
         const string sql = """
-            select id, order_number, status::text, total, created_at
+            select id, order_number, status::text, total, created_at, channel_connection_id
             from public.orders
+            where (@from is null or created_at >= @from)
+              and (@to is null or created_at < @to + interval '1 day')
             order by created_at desc, id
             limit 100
             """;
 
         await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("from", (object?)from ?? DBNull.Value);
+        command.Parameters.AddWithValue("to", (object?)to ?? DBNull.Value);
         await using var reader =
             await command.ExecuteReaderAsync(cancellationToken);
 
@@ -51,7 +55,8 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
                 reader.GetString(1),
                 reader.GetString(2),
                 reader.GetDecimal(3),
-                reader.GetFieldValue<DateTimeOffset>(4)));
+                reader.GetFieldValue<DateTimeOffset>(4),
+                reader.IsDBNull(5) ? null : reader.GetGuid(5)));
         }
 
         return orders;
@@ -62,7 +67,7 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
     {
         const string sql = """
         select o.id, o.order_number, o.status::text, o.customer_id,
-               o.subtotal, o.tax, o.shipping_fee, o.total, o.created_at, c.name
+               o.subtotal, o.tax, o.shipping_fee, o.total, o.created_at, c.name, o.channel_connection_id
         from public.orders o
         left join public.customers c on c.id = o.customer_id
         where o.id = @id;
@@ -96,7 +101,8 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
             reader.GetDecimal(7),
             reader.GetFieldValue<DateTimeOffset>(8),
             items,
-            reader.IsDBNull(9) ? null : reader.GetString(9));
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            reader.IsDBNull(10) ? null : reader.GetGuid(10));
 
         await reader.NextResultAsync(cancellationToken);
 

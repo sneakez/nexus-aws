@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
-import { getBackendOrderHistory, backendOrderStatuses, type BackendOrderHistoryEntry } from '@/lib/backendOrders';
+import { ordersService, backendOrderStatuses, type BackendOrderHistoryEntry } from '@/services/orders.service';
 import { formatDate } from '@/lib/utils';
 
 export function BackendOrderHistory({ orderId, revision }: { orderId: string; revision: number }) {
@@ -13,7 +13,7 @@ export function BackendOrderHistory({ orderId, revision }: { orderId: string; re
     const controller = new AbortController();
     setEntries(null); setError(null);
     if (!token) { setError('Vui lòng đăng nhập lại.'); return () => controller.abort(); }
-    void getBackendOrderHistory(orderId, token, controller.signal)
+    void ordersService.history(orderId, token, controller.signal)
       .then(data => { if (!controller.signal.aborted) setEntries(data); })
       .catch((cause: unknown) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Không tải được lịch sử.'); });
     return () => controller.abort();

@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, type FormEvent } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
-import { advanceBackendOrder, OrderApiError, type BackendOrderDetail,
-  type BackendOrderOperation, type BackendOrderOperationRequest } from '@/lib/backendOrders';
+import { ApiError } from '@/services/apiClient';
+import { ordersService, type BackendOrderDetail,
+  type BackendOrderOperation, type BackendOrderOperationRequest } from '@/services/orders.service';
 
 interface PendingOperation { operation: BackendOrderOperation; request: BackendOrderOperationRequest }
 const labels: Record<BackendOrderOperation, string> = {
@@ -42,6 +43,7 @@ export function BackendOrderActions({ order, onUpdated }: { order: BackendOrderD
   if (manager && ['pending', 'confirmed', 'processing'].includes(order.status)) allowed.push('cancel');
   const canRetry = pending && (manager || (warehouse && ['process', 'ship'].includes(pending.operation)));
   useEffect(() => { if (selected) panel.current?.querySelector<HTMLElement>('textarea, button[type="submit"]')?.focus(); }, [selected]);
+  if (order.channelConnectionId) return null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -56,12 +58,12 @@ export function BackendOrderActions({ order, onUpdated }: { order: BackendOrderD
       sessionStorage.setItem(key, JSON.stringify(operation));
       setPending(operation);
       sent = true;
-      const result = await advanceBackendOrder(order.id, operation.operation, operation.request, session.access_token);
+      const result = await ordersService.advance(order.id, operation.operation, operation.request, session.access_token);
       sessionStorage.removeItem(key); setPending(null); setSelected(null); setReason('');
       onUpdated(labels[operation.operation] + (result.replayed ? ': đã xác nhận kết quả yêu cầu trước.' : ' thành công.'));
     } catch (cause: unknown) {
       if (!sent) { setError('Không lưu được yêu cầu trên trình duyệt. Chưa gửi thao tác.'); return; }
-      const rejected = cause instanceof OrderApiError && [400, 404, 409, 422].includes(cause.status);
+      const rejected = cause instanceof ApiError && [400, 404, 409, 422].includes(cause.status);
       if (rejected) { sessionStorage.removeItem(key); setPending(null); }
       setError(rejected && cause instanceof Error ? cause.message
         : 'Chưa xác nhận được kết quả. Giữ nguyên yêu cầu và bấm kiểm tra lại để tránh thao tác hai lần.');

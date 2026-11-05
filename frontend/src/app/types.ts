@@ -1,6 +1,7 @@
 export type PageId =
   | 'dashboard'
   | 'inventory'
+  | 'products'
   | 'orders'
   | 'fulfillment'
   | 'returns'

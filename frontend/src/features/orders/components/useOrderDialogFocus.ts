@@ -14,7 +14,7 @@ export function useOrderDialogFocus(content: RefObject<HTMLElement | null>) {
       if (event.key !== 'Tab') return;
       const elements = controls();
       const first = elements[0];
-      const last = elements.at(-1);
+      const last = elements[elements.length - 1];
       if (!first || !last) { event.preventDefault(); return; }
       if (!dialog!.contains(document.activeElement)
         || (event.shiftKey && document.activeElement === first)

@@ -1,1 +1,1 @@
-export { LoginPage } from './pages/LiveLoginScreen';
+export { LoginPage } from './pages/LoginScreen';

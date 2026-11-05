@@ -5,9 +5,10 @@ import { useAuth } from '@/providers/AuthProvider';
 
 
 import { Sidebar } from '@/components/layout/Sidebar';
-import { Topbar } from '@/components/layout/Topbar';
+import { Topbar } from '@/components/layout/LiveTopbar';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { FullPageSpinner } from '@/components/ui/Spinner';
+import { WebhookSimulationLauncher } from '../WebhookSimulatorPage';
 import { PAGE_META, isPageId } from '../navigation';
 import { LivePage } from '../live-page-registry';
 import type { PageId } from '../types';
@@ -19,12 +20,20 @@ function initialPage(): PageId {
   const hashPage = window.location.hash.replace('#', '');
   return isPageId(hashPage) ? hashPage : 'dashboard';
 }
+function initialDateRange() {
+  const today = new Date();
+  const to = today.toISOString().slice(0, 10);
+  const fromDate = new Date(today); fromDate.setDate(today.getDate() - 29);
+  const from = fromDate.toISOString().slice(0, 10);
+  try { return JSON.parse(localStorage.getItem('nexus-global-date-range') ?? 'null') ?? { from, to }; } catch { return { from, to }; }
+}
 
 export function AppShell() {
   const { activeRole } = useAuth();
   const [page, setPage] = useState<PageId>(initialPage);
   const [search, setSearch] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [dateRange, setDateRange] = useState(initialDateRange);
 
 
   useEffect(() => {
@@ -32,6 +41,7 @@ export function AppShell() {
     url.searchParams.set('page', page);
     window.history.replaceState({}, '', url.toString());
   }, [page]);
+  useEffect(() => { localStorage.setItem('nexus-global-date-range', JSON.stringify(dateRange)); }, [dateRange]);
 
   useEffect(() => {
     const allowedPages = getAllowedPagesForRole(activeRole, true);
@@ -44,7 +54,7 @@ export function AppShell() {
   };
   const allowed = getAllowedPagesForRole(activeRole, true).includes(page);
   const meta = PAGE_META[page];
-  const showTopbarSearch = page === 'channelConnections';
+  const showTopbarSearch = false;
 
   return (
     <div data-testid="workspace" data-role={activeRole} className="flex h-screen bg-app-gradient overflow-hidden font-sans">
@@ -69,6 +79,9 @@ export function AppShell() {
           onMobileMenu={() => setMobileOpen(open => !open)}
           onNavigate={next => isPageId(next) && navigate(next)}
           showSearch={showTopbarSearch}
+          dateFrom={dateRange.from}
+          dateTo={dateRange.to}
+          onDateRangeChange={(from, to) => { if (from && to && from <= to) setDateRange({ from, to }); }}
         />
         <main data-page={page} className="flex-1 overflow-y-auto overflow-x-hidden bg-transparent">
           <ErrorBoundary>
@@ -80,12 +93,13 @@ export function AppShell() {
               </div>
             ) : (
               <Suspense fallback={<FullPageSpinner label="Đang tải dữ liệu..." />}>
-                <LivePage page={page} search={search} navigate={navigate} />
+                <LivePage page={page} search={search} navigate={navigate} dateRange={dateRange} />
               </Suspense>
             )}
           </ErrorBoundary>
         </main>
       </div>
+      <WebhookSimulationLauncher />
     </div>
   );
 }

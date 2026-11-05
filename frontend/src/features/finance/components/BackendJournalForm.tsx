@@ -1,9 +1,9 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
-import { OrderApiError } from '@/lib/backendOrders';
-import { createBackendJournal, journalCents, formatJournalCents,
-  type BackendJournalRequest, type BackendJournalDetail, type BackendLedgerAccount } from '@/lib/backendJournals';
+import { ApiError } from '@/services/apiClient';
+import { journalsService, journalCents, formatJournalCents,
+  type BackendJournalRequest, type BackendJournalDetail, type BackendLedgerAccount } from '@/services/journals.service';
 
 interface DraftLine { rowId: string; accountId: string; side: 'debit' | 'credit'; amount: string }
 const fresh = (side: 'debit' | 'credit'): DraftLine => ({ rowId: crypto.randomUUID(), accountId: '', side, amount: '' });
@@ -62,11 +62,11 @@ export function BackendJournalForm({ accounts, onCreated, onClose }: {
     let sent = false;
     try {
       sessionStorage.setItem(key, JSON.stringify(request)); setPending(request); sent = true;
-      const result = await createBackendJournal(request, session.access_token);
+      const result = await journalsService.create(request, session.access_token);
       sessionStorage.removeItem(key); setPending(null); onCreated(result);
     } catch (cause: unknown) {
       if (!sent) { setError('Không lưu được yêu cầu. Chưa gửi bút toán.'); return; }
-      const rejected = cause instanceof OrderApiError && [400, 404, 409, 422].includes(cause.status);
+      const rejected = cause instanceof ApiError && [400, 404, 409, 422].includes(cause.status);
       if (rejected) { sessionStorage.removeItem(key); setPending(null); }
       setError(rejected && cause instanceof Error ? cause.message
         : 'Chưa xác nhận được kết quả ghi sổ. Giữ nguyên ID và nội dung để kiểm tra lại an toàn.');

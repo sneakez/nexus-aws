@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatJournalCents, journalCents } from '@/lib/backendJournals';
+import { formatJournalCents, journalCents } from '@/services/journals.service';
 
 export function BackendPricingCalculator() {
   const [cost, setCost] = useState('');
