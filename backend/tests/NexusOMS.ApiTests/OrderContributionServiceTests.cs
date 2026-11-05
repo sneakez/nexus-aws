@@ -70,6 +70,8 @@ public class OrderContributionServiceTests
                 id == order.Id ? order : null);
 
         public Task<IReadOnlyList<OrderSummary>> ListAsync(
+            DateOnly? from,
+            DateOnly? to,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<OrderSummary>>([]);
 
