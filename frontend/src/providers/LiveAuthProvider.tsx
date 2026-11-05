@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const verifiedSession = useRef<Session | null>(null);
   const revision = useRef(0);
   const request = useRef<AbortController | null>(null);
 
@@ -39,9 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
-    setLoading(true);
-    setSession(null);
-    setProfile(null);
+    const sameUser = next !== null && verifiedSession.current?.user.id === next.user.id;
+    if (!sameUser) {
+      verifiedSession.current = null;
+      setLoading(true);
+      setSession(null);
+      setProfile(null);
+    }
     setAuthError(null);
     try {
       if (!next) return;
@@ -59,9 +64,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         created_at: next.user.created_at,
         updated_at: next.user.updated_at ?? next.user.created_at,
       });
+      verifiedSession.current = next;
       setSession(next);
     } catch (cause) {
       if (!controller.signal.aborted && current === revision.current) {
+        verifiedSession.current = null;
+        setSession(null);
+        setProfile(null);
         setAuthError(cause instanceof Error ? cause.message : 'Không xác thực được tài khoản.');
       }
     } finally {
@@ -73,13 +82,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let disposed = false;
     let eventReceived = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data } = supabase.auth.onAuthStateChange((event, next) => {
       eventReceived = true;
+      const current = verifiedSession.current;
+      if (next && current?.user.id === next.user.id
+        && current.access_token === next.access_token
+        && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) return;
       revision.current++;
       request.current?.abort();
-      setSession(null);
-      setProfile(null);
-      setLoading(true);
+      if (!next || next.user.id !== current?.user.id) {
+        verifiedSession.current = null;
+        setSession(null);
+        setProfile(null);
+        setLoading(true);
+      }
       // Supabase auth callbacks run under its session lock.
       clearTimeout(timer);
       timer = setTimeout(() => { if (!disposed) void applySession(next); }, 0);
