@@ -5,13 +5,15 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci
 
 # Biến VITE_* được "đóng cứng" vào file JS lúc build, không đổi được lúc chạy.
-ARG VITE_DATA_MODE=mock
+ARG VITE_DATA_MODE=supabase
+ARG VITE_API_BASE_URL=
 ARG VITE_SUPABASE_URL=
 ARG VITE_SUPABASE_ANON_KEY=
 ENV VITE_DATA_MODE=$VITE_DATA_MODE \
+    VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
     VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 

@@ -8,11 +8,9 @@ import type {
   POStatus,
   WaveStatus,
   AccountType,
-  ReturnStatus,
   ComplaintStatus,
   SerialStatus,
   InventoryTxnType,
-  ApprovalStatus,
 } from '@/types';
 
 export function formatCurrency(value: number | string | null | undefined): string {
@@ -21,7 +19,7 @@ export function formatCurrency(value: number | string | null | undefined): strin
     style: 'currency',
     currency: 'VND',
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 5,
   }).format(num);
 }
 

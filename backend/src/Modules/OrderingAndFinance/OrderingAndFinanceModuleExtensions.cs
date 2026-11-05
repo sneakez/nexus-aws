@@ -26,6 +26,9 @@ public static class OrderingAndFinanceModuleExtensions
         services.AddScoped<OrderProgressService>();
         services.AddScoped<IJournalRepository, PostgresJournalRepository>();
         services.AddScoped<JournalService>();
+        services.AddScoped<ILedgerAccountRepository, PostgresLedgerAccountRepository>();
+        services.AddScoped<LedgerAccountService>();
+        services.AddScoped<IFinanceSummaryRepository, PostgresFinanceSummaryRepository>();
         return services;
     }
 }

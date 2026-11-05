@@ -1,3 +1,4 @@
+import { isMockMode } from '@/lib/config';
 import { lazy, type ReactNode } from 'react';
 import type { PageId } from './types';
 
@@ -16,6 +17,8 @@ const ChannelConnectionsScreen = lazy(() => import('@/features/channels').then(m
 const ChannelMappingScreen = lazy(() => import('@/features/catalog').then(module => ({ default: module.ChannelMappingScreen })));
 const SimulatorScreen = lazy(() => import('@/features/simulator').then(module => ({ default: module.SimulatorScreen })));
 
+const LiveWorkspace = lazy(() => import('./BackendWorkspacePage').then(module => ({ default: module.BackendWorkspacePage })));
+const LiveOrders = lazy(() => import('@/features/orders/pages/BackendOrdersScreen').then(module => ({ default: module.BackendOrdersPage })));
 interface PageRendererProps {
   page: PageId;
   search: string;
@@ -23,6 +26,21 @@ interface PageRendererProps {
 }
 
 export function renderPage({ page, search, navigate }: PageRendererProps): ReactNode {
+  if (!isMockMode()) {
+    switch (page) {
+      case 'dashboard':
+      case 'fulfillment':
+      case 'returns':
+      case 'orderEconomics':
+        return <LiveOrders key={page} search={search} view={page} />;
+      case 'orders':
+        break;
+      case 'cashWorkingCapital':
+        return null;
+      default:
+        return <LiveWorkspace key={page} page={page} search={search} />;
+    }
+  }
   switch (page) {
     case 'dashboard': return <DashboardScreen onNavigate={next => navigate(next as PageId)} />;
     case 'inventory': return <InventoryScreen search={search} />;

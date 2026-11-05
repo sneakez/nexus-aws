@@ -38,11 +38,25 @@ jobs:
           - name: frontend
             context: ./frontend
             build_args: |
-              VITE_DATA_MODE=${{ vars.VITE_DATA_MODE || 'mock' }}
+              VITE_DATA_MODE=supabase
+              VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+              VITE_SUPABASE_URL=${{ vars.VITE_SUPABASE_URL }}
+              VITE_SUPABASE_ANON_KEY=${{ vars.VITE_SUPABASE_ANON_KEY }}
           - name: backend
             context: ./backend
             build_args: ''
     steps:
+      - name: Verify frontend build configuration
+        if: matrix.name == 'frontend'
+        shell: bash
+        env:
+          PUBLIC_API_URL: ${{ vars.VITE_API_BASE_URL }}
+          PUBLIC_AUTH_URL: ${{ vars.VITE_SUPABASE_URL }}
+          PUBLIC_AUTH_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$PUBLIC_API_URL" || { echo "Set repository variable VITE_API_BASE_URL"; exit 1; }
+          test -n "$PUBLIC_AUTH_URL" || { echo "Set repository variable VITE_SUPABASE_URL"; exit 1; }
+          test -n "$PUBLIC_AUTH_KEY" || { echo "Set repository variable VITE_SUPABASE_ANON_KEY"; exit 1; }
       - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v4

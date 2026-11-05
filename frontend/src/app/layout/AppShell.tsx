@@ -1,3 +1,4 @@
+import { isMockMode } from '@/lib/config';
 import { Suspense, useEffect, useState } from 'react';
 import { getAllowedPagesForRole } from '@/lib/permissions';
 import { useAuth } from '@/providers/AuthProvider';
@@ -33,7 +34,7 @@ export function AppShell() {
   }, [page]);
 
   useEffect(() => {
-    const allowedPages = getAllowedPagesForRole(activeRole);
+    const allowedPages = getAllowedPagesForRole(activeRole, !isMockMode());
     if (!allowedPages.includes(page) && allowedPages.includes('dashboard')) setPage('dashboard');
   }, [activeRole, page]);
 
@@ -41,9 +42,11 @@ export function AppShell() {
     setPage(nextPage);
     setSearch('');
   };
-  const allowed = getAllowedPagesForRole(activeRole).includes(page);
+  const allowed = getAllowedPagesForRole(activeRole, !isMockMode()).includes(page);
   const meta = PAGE_META[page];
-  const showTopbarSearch = ['fulfillment', 'customers', 'channelConnections', 'channelMapping'].includes(page);
+  const showTopbarSearch = (isMockMode()
+    ? ['fulfillment', 'customers', 'channelConnections', 'channelMapping']
+    : ['channelConnections']).includes(page);
 
   return (
     <div data-testid="workspace" data-role={activeRole} className="flex h-screen bg-app-gradient overflow-hidden font-sans">
@@ -51,8 +54,8 @@ export function AppShell() {
         current={page}
         onNavigate={navigate}
         stats={{
-          pendingOrders: omsStore.getOrders().filter(order => order.status === 'pending').length,
-          lowStock: omsStore.getInventory5State().filter(item => item.available <= item.safety_stock).length,
+          pendingOrders: isMockMode() ? omsStore.getOrders().filter(order => order.status === 'pending').length : 0,
+          lowStock: isMockMode() ? omsStore.getInventory5State().filter(item => item.available <= item.safety_stock).length : 0,
         }}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}

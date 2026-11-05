@@ -23,10 +23,25 @@ builder.Services.AddOrderingAndFinanceModule();
 
 builder.Services.AddScoped<NexusOMS.Api.Authorization.IProfileRoleReader,
     NexusOMS.Api.Infrastructure.PostgresProfileRoleReader>();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        var origin = builder.Configuration["Frontend:Origin"];
 
+        if (!string.IsNullOrWhiteSpace(origin))
+        {
+            policy.WithOrigins(origin)
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
+    });
+});
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseRouting();
+app.UseCors("Frontend");
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.UseAuthentication();

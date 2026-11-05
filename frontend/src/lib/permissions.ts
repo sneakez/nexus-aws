@@ -144,6 +144,10 @@ function getRolePages(role: TenantRole | null | undefined): string[] {
 
 // Preserve all original modules; role access is independent of module readiness.
 export const OPTIONAL_PAGES = new Set<string>();
-export function getAllowedPagesForRole(role: TenantRole | null | undefined): string[] {
+export function getAllowedPagesForRole(role: TenantRole | null | undefined, backendMode = false): string[] {
+  if (backendMode) {
+    if (role === 'admin' || role === 'manager') return getRolePages('owner').filter(page => page !== 'simulator' && page !== 'cashWorkingCapital');
+    return role === 'warehouse' ? getRolePages('warehouse') : [];
+  }
   return getRolePages(role);
 }

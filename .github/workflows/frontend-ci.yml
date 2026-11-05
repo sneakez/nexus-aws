@@ -31,6 +31,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint:live
       # TODO: hiện còn ~250 lỗi lint tồn đọng (unused-vars, no-explicit-any).
       # Để không chặn merge, tạm cho phép fail; xóa continue-on-error khi đã dọn xong.
       - run: npm run lint

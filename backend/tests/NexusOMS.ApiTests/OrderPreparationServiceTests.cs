@@ -54,7 +54,7 @@ public class OrderPreparationServiceTests
         Assert.Contains(productId.ToString(), exception.Message);
     }
     [Fact]
-    public async Task Rounds_line_total_to_two_decimal_places()
+    public async Task Preserves_the_exact_product_of_quantity_and_unit_price()
     {
         var productId = Guid.NewGuid();
         var catalog = new FakeCatalog(
@@ -75,7 +75,9 @@ public class OrderPreparationServiceTests
         var prepared = await service.PrepareAsync(request);
 
         var line = Assert.Single(prepared.Items);
-        Assert.Equal(1.27m, line.LineTotal);
+        Assert.Equal(1.265m, line.LineTotal);
+        Assert.Equal(1.265m, prepared.Subtotal);
+        Assert.Equal(1.265m, prepared.Total);
     }
     [Fact]
     public async Task Calculates_total_from_items_tax_and_shipping()

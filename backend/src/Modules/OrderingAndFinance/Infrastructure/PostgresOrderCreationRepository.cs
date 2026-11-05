@@ -51,6 +51,7 @@ public sealed class PostgresOrderCreationRepository(
             @orderNumber, 'pending',
             @subtotal, @tax, @shippingFee, @total,
             @key, @payload)
+        returning subtotal, total
         """;
 
         await using var command =
@@ -76,7 +77,13 @@ public sealed class PostgresOrderCreationRepository(
             "payload", NpgsqlDbType.Jsonb).Value =
             OrderCreationPayload.Serialize(request);
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)
+            || reader.GetDecimal(0) != prepared.Subtotal
+            || reader.GetDecimal(1) != prepared.Total)
+        {
+            throw new InvalidOperationException("Database did not preserve the order amount.");
+        }
     }
     private static async Task InsertItemsAsync(
     NpgsqlConnection connection,
@@ -92,6 +99,7 @@ public sealed class PostgresOrderCreationRepository(
         values (
             @orderId, @productId, @sku, @name,
             @quantity, @unitPrice, @unitCost, @lineTotal)
+        returning line_total
         """;
 
         foreach (var item in prepared.Items)
@@ -108,7 +116,11 @@ public sealed class PostgresOrderCreationRepository(
             command.Parameters.AddWithValue("unitCost", item.UnitCost);
             command.Parameters.AddWithValue("lineTotal", item.LineTotal);
 
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            if (await command.ExecuteScalarAsync(cancellationToken) is not decimal storedTotal
+                || storedTotal != item.LineTotal)
+            {
+                throw new InvalidOperationException("Database did not preserve the line amount.");
+            }
         }
     }
     private static async Task InsertHistoryAndAuditAsync(

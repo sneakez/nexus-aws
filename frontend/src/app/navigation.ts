@@ -1,18 +1,20 @@
+import { isMockMode } from '@/lib/config';
 import type { NavigationGroup, PageId, PageMeta } from './types';
 
 export const NAVIGATION_GROUPS: NavigationGroup[] = [
   { label: 'TỔNG QUAN', items: [{ id: 'dashboard', label: 'Tổng quan' }, { id: 'inventory', label: 'Vận hành kho' }] },
   { label: 'VẬN HÀNH ĐƠN', items: [{ id: 'orders', label: 'Đơn hàng' }, { id: 'fulfillment', label: 'Xử lý đơn' }, { id: 'returns', label: 'Đổi trả hàng' }, { id: 'customers', label: 'Khách hàng' }] },
-  { label: 'TÀI CHÍNH & P&L', items: [{ id: 'orderEconomics', label: 'Lợi nhuận đơn' }, { id: 'skuEconomics', label: 'Lợi nhuận SKU' }, { id: 'channelEconomics', label: 'Hiệu quả kênh' }, { id: 'cashWorkingCapital', label: 'Dòng tiền' }, { id: 'pricingCalculator', label: 'Định giá bán' }] },
-  { label: 'KẾT NỐI SÀN', items: [{ id: 'channelConnections', label: 'Kết nối sàn' }, { id: 'channelMapping', label: 'Ánh xạ SKU' }, { id: 'simulator', label: 'Mô phỏng Flash Sale' }] },
+  { label: 'TÀI CHÍNH & P&L', items: [{ id: 'orderEconomics', label: 'Lợi nhuận đơn' }, { id: 'skuEconomics', label: 'Lợi nhuận SKU' }, { id: 'channelEconomics', label: 'Hiệu quả kênh' }, ...(isMockMode() ? [{ id: 'cashWorkingCapital' as const, label: 'Dòng tiền' }] : []), { id: 'pricingCalculator', label: 'Định giá bán' }] },
+  { label: 'KẾT NỐI SÀN', items: [{ id: 'channelConnections', label: 'Kết nối sàn' }, { id: 'channelMapping', label: 'Ánh xạ SKU' }] },
+  { label: 'PHÒNG LAB', items: [{ id: 'simulator', label: 'Mô phỏng Flash Sale' }] },
 ];
 
 export const PAGE_META: Record<PageId, PageMeta> = {
-  dashboard: { title: 'Bảng điều hành kinh doanh', subtitle: 'Tổng quan doanh thu quản trị, dòng đóng góp lợi nhuận (CM1, CM2, CM3)', searchPlaceholder: 'Tìm kiếm nhanh...' },
+  dashboard: { title: 'Bảng điều hành kinh doanh', subtitle: isMockMode() ? 'Tổng quan doanh thu quản trị, dòng đóng góp lợi nhuận (CM1, CM2, CM3)' : 'Tình trạng các đơn gần nhất', searchPlaceholder: 'Tìm kiếm nhanh...' },
   inventory: { title: 'Tồn kho 5 trạng thái', subtitle: 'Vật lý = Khả dụng + Đang giữ + Không khả dụng · Hàng sắp về', searchPlaceholder: 'Tìm tên sản phẩm hoặc SKU...' },
   orders: { title: 'Quản trị đơn hàng', subtitle: 'Theo dõi tiến trình từ đặt hàng, giữ kho, đóng gói đến đối soát POD', searchPlaceholder: 'Tìm mã đơn, khách hàng...' },
-  fulfillment: { title: 'Xử lý đơn & Đóng gói', subtitle: 'Điều phối xuất kho, nhặt hàng theo wave và cam kết SLA', searchPlaceholder: 'Tìm wave...' },
-  returns: { title: 'Đổi trả & Xử lý RMA', subtitle: 'Quy trình đổi trả hàng, hoàn tiền và nhập lại kho', searchPlaceholder: 'Tìm mã RMA, mã đơn...' },
+  fulfillment: { title: 'Xử lý đơn & Đóng gói', subtitle: isMockMode() ? 'Điều phối xuất kho, nhặt hàng theo wave và cam kết SLA' : 'Xác nhận, chuẩn bị và xuất kho', searchPlaceholder: 'Tìm wave...' },
+  returns: { title: 'Đổi trả & Xử lý RMA', subtitle: isMockMode() ? 'Quy trình đổi trả hàng, hoàn tiền và nhập lại kho' : 'Tạo và tra cứu yêu cầu trả hàng theo đơn', searchPlaceholder: 'Tìm mã RMA, mã đơn...' },
   customers: { title: 'Khách hàng (CRM)', subtitle: 'Hồ sơ khách hàng, phân tầng giá trị và lịch sử mua hàng', searchPlaceholder: 'Tìm tên khách, SĐT...' },
   orderEconomics: { title: 'Kinh tế đơn hàng (P&L)', subtitle: 'Bóc tách chi phí & biên đóng góp từng đơn hàng (CM1, CM2, CM3)', searchPlaceholder: 'Tìm mã đơn...' },
   skuEconomics: { title: 'Biên lợi nhuận SKU', subtitle: 'Lợi nhuận đóng góp, giá hòa vốn và ma trận danh mục SKU', searchPlaceholder: 'Tìm SKU...' },

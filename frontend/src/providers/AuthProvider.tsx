@@ -5,12 +5,13 @@ import { supabase } from '@/lib/supabase';
 import { isMockMode } from '@/lib/config';
 import { omsStore } from '@/stores/omsStore';
 import type { Profile, UserRole, Tenant, TenantMembership, TenantRole } from '@/types';
-
+import { getBackendSession } from '@/lib/backendSession';
 interface AuthContextValue {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  authError: string | null;
   memberships: TenantMembership[];
   activeTenant: Tenant | null;
   activeRole: TenantRole | null;
@@ -34,9 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [memberships, setMemberships] = useState<TenantMembership[]>([]);
   const [activeTenant, setActiveTenant] = useState<Tenant | null>(null);
-  const [activeRole, setActiveRole] = useState<TenantRole | null>('owner');
+  const [activeRole, setActiveRole] = useState<TenantRole | null>(null);
   const [loading, setLoading] = useState(true);
-
+  const [authError, setAuthError] = useState<string | null>(null);
   // Sync mock store state when in mock mode
   const syncFromMockStore = useCallback(() => {
     if (!isMockMode()) return;
@@ -94,36 +95,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [syncFromMockStore]);
 
   const loadMemberships = useCallback(async (userId: string) => {
-    if (isMockMode()) {
-      syncFromMockStore();
-      return;
-    }
-    const { data, error } = await supabase
-      .from('tenant_memberships')
-      .select('*, tenant:tenants(*)')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: true });
+  if (isMockMode()) {
+    syncFromMockStore();
+    return;
+  }
 
-    if (error || !data || data.length === 0) {
-      setMemberships([]);
-      setActiveTenant(null);
-      return;
-    }
+  // Backend hiện dùng một tổ chức, không có tenant memberships.
+  setMemberships([]);
+  setActiveTenant(null);
+  setActiveRole(null);
+  localStorage.removeItem(ACTIVE_TENANT_KEY);
 
-    const mships = data as unknown as TenantMembership[];
-    setMemberships(mships);
+  const { data, error } = await supabase.auth.getSession();
 
-    const savedTenantId = localStorage.getItem(ACTIVE_TENANT_KEY);
-    const saved = savedTenantId
-      ? mships.find((m) => m.tenant_id === savedTenantId)
-      : null;
-    const target = saved ?? mships[0];
-    setActiveTenant(target?.tenant ?? null);
-    if (target?.tenant_id) {
-      localStorage.setItem(ACTIVE_TENANT_KEY, target.tenant_id);
-    }
-  }, [syncFromMockStore]);
+  if (error || !data.session) {
+    throw new Error('Không tìm thấy phiên đăng nhập hợp lệ.');
+  }
+
+  const backendSession = await getBackendSession(
+    data.session.access_token,
+  );
+
+  if (backendSession.userId !== userId) {
+    throw new Error('Tài khoản backend không khớp phiên đăng nhập.');
+  }
+
+  const role = backendSession.roles.includes('admin')
+    ? 'admin'
+    : backendSession.roles.includes('manager')
+      ? 'manager'
+      : 'warehouse';
+
+  setActiveRole(role);
+}, [syncFromMockStore]);
 
   const reloadUser = useCallback(async () => {
     if (isMockMode()) {
@@ -141,53 +145,139 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadProfile, loadMemberships, syncFromMockStore]);
 
   useEffect(() => {
-    if (isMockMode()) {
-      syncFromMockStore();
-      const unsub = omsStore.subscribe((event) => {
-        if (event?.topic === 'ROLE_SWITCHED' || event?.topic === 'DATABASE_RESET') {
-          syncFromMockStore();
-        }
-      });
-      return unsub;
+  if (isMockMode()) {
+    syncFromMockStore();
+
+    return omsStore.subscribe((event) => {
+      if (
+        event?.topic === 'ROLE_SWITCHED'
+        || event?.topic === 'DATABASE_RESET'
+      ) {
+        syncFromMockStore();
+      }
+    });
+  }
+
+  let disposed = false;
+  let revision = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  function clearIdentity() {
+    setSession(null);
+    setProfile(null);
+    setMemberships([]);
+    setActiveTenant(null);
+    setActiveRole(null);
+    localStorage.removeItem(ACTIVE_TENANT_KEY);
+  }
+
+  async function applySession(
+    nextSession: Session | null,
+    currentRevision: number,
+  ) {
+    if (disposed || currentRevision !== revision) return;
+
+    setLoading(true);
+    setAuthError(null);
+    clearIdentity();
+
+    if (!nextSession) {
+      setLoading(false);
+      return;
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session) {
-        Promise.all([
-          loadProfile(data.session.user.id),
-          loadMemberships(data.session.user.id),
-        ]).finally(() => {
-          setLoading(false);
-        });
-      } else {
+    try {
+      const backendSession = await getBackendSession(
+        nextSession.access_token,
+      );
+
+      if (backendSession.userId !== nextSession.user.id) {
+        throw new Error('Tài khoản backend không khớp phiên đăng nhập.');
+      }
+
+      const { data: nextProfile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', nextSession.user.id)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error('Không tải được hồ sơ tài khoản.');
+      }
+
+      if (!nextProfile || nextProfile.is_active !== true) {
+        throw new Error('Tài khoản chưa được kích hoạt hoặc đã bị khóa.');
+      }
+
+      if (disposed || currentRevision !== revision) return;
+
+      const role = backendSession.roles.includes('admin')
+        ? 'admin'
+        : backendSession.roles.includes('manager')
+          ? 'manager'
+          : 'warehouse';
+
+      setProfile({ ...nextProfile, role } as Profile);
+      setActiveRole(role);
+      setSession(nextSession);
+    } catch (error) {
+      if (disposed || currentRevision !== revision) return;
+
+      clearIdentity();
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : 'Không xác thực được quyền tài khoản.',
+      );
+    } finally {
+      if (!disposed && currentRevision === revision) {
         setLoading(false);
       }
-    }).catch(() => {
+    }
+  }
+
+  const initialRevision = revision;
+
+  const { data: subscription } = supabase.auth.onAuthStateChange(
+    (_event, nextSession) => {
+      const currentRevision = ++revision;
+
+      clearTimeout(timer);
+      clearIdentity();
+      setLoading(true);
+
+      timer = setTimeout(() => {
+        void applySession(nextSession, currentRevision);
+      }, 0);
+    },
+  );
+
+  void supabase.auth.getSession().then(({ data, error }) => {
+    if (disposed || revision !== initialRevision) return;
+
+    if (error) {
+      clearIdentity();
+      setAuthError('Không khôi phục được phiên đăng nhập.');
       setLoading(false);
-    });
+      return;
+    }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
-      setSession(sess);
-      if (sess) {
-        (async () => {
-          await Promise.all([
-            loadProfile(sess.user.id),
-            loadMemberships(sess.user.id),
-          ]);
-          setLoading(false);
-        })();
-      } else {
-        setProfile(null);
-        setMemberships([]);
-        setActiveTenant(null);
-        localStorage.removeItem(ACTIVE_TENANT_KEY);
-        setLoading(false);
-      }
-    });
+    void applySession(data.session, initialRevision);
+  }).catch(() => {
+    if (disposed || revision !== initialRevision) return;
 
-    return () => { sub.subscription.unsubscribe(); };
-  }, [loadProfile, loadMemberships, syncFromMockStore]);
+    clearIdentity();
+    setAuthError('Không khôi phục được phiên đăng nhập.');
+    setLoading(false);
+  });
+
+  return () => {
+    disposed = true;
+    revision++;
+    clearTimeout(timer);
+    subscription.subscription.unsubscribe();
+  };
+}, [syncFromMockStore]);
 
   async function signIn(email: string, password: string) {
     if (isMockMode()) {
@@ -206,9 +296,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isMockMode()) {
       omsStore.setActiveRole('owner');
       syncFromMockStore();
-      return { 
-        error: null, 
-        user: { id: `usr_${Date.now()}`, email } as unknown as User 
+      return {
+        error: null,
+        user: { id: `usr_${Date.now()}`, email } as unknown as User
       };
     }
     const { data, error } = await supabase.auth.signUp({
@@ -324,6 +414,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         profile,
         loading,
+        authError,
         memberships,
         activeTenant,
         activeRole,

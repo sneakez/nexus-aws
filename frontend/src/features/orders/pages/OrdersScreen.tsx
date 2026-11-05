@@ -1,3 +1,5 @@
+import { isMockMode } from '@/lib/config';
+import { BackendOrdersPage } from './BackendOrdersScreen';
 import { hasPermission } from '@/lib/permissions';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -67,7 +69,13 @@ const CHANNEL_BADGES: Record<string, { label: string; color: string; bg: string 
   website: { label: 'Website D2C', color: 'text-emerald-700 border-emerald-200', bg: 'bg-emerald-50' }
 };
 
-export function OrdersPage({ search = '', onNavigate }: OrdersPageProps) {
+export function OrdersPage(props: OrdersPageProps) {
+  return isMockMode()
+    ? <MockOrdersPage {...props} />
+    : <BackendOrdersPage search={props.search} />;
+}
+
+function MockOrdersPage({ search = '', onNavigate }: OrdersPageProps) {
   const toast = useToast();
   const { activeTenant, activeRole } = useAuth();
   const canViewEconomics = hasPermission(activeRole, 'finance:view') || hasPermission(activeRole, 'analytics:view');

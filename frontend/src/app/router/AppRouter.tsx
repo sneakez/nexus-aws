@@ -3,13 +3,39 @@ import { useAuth } from '@/providers/AuthProvider';
 import { FullPageSpinner } from '@/components/ui/Spinner';
 import { AppShell } from '../layout/AppShell';
 import { useAppRouter } from './useAppRouter';
-
+import { isMockMode } from '@/lib/config';
 export function AppRouter() {
   const { path, navigate } = useAppRouter();
-  const { session, loading, activeTenant, memberships } = useAuth();
 
+const {
+  session,
+  loading,
+  activeTenant,
+  memberships,
+  activeRole,
+  authError,
+  signOut,
+} = useAuth();
   if (loading) return <FullPageSpinner label="Đang khởi tạo hệ thống..." />;
-
+  if (!isMockMode() && authError) {
+  return (
+    <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
+      <div className="max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+        <h1 className="text-lg font-semibold">Không thể xác thực tài khoản</h1>
+        <p role="alert" className="mt-2 text-sm text-red-700">
+          {authError}
+        </p>
+        <button
+          type="button"
+          onClick={() => { void signOut(); }}
+          className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-white"
+        >
+          Đăng xuất
+        </button>
+      </div>
+    </div>
+  );
+}
   if (path === '/' || path === '/login') {
     if (session) {
       navigate('/app', true);
@@ -20,7 +46,11 @@ export function AppRouter() {
 
   if (path.startsWith('/app')) {
     if (!session) return <LoginPage onNavigate={next => navigate(next === '/login' ? '/login' : '/app')} />;
-    if (memberships.length === 0 && !activeTenant) {
+    if (
+  isMockMode()
+    ? memberships.length === 0 && !activeTenant
+    : !activeRole
+) {
       return (
         <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
           <div className="max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">

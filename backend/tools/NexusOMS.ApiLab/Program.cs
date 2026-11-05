@@ -448,6 +448,14 @@ internal static class ApiLabProgram
     ("creditId", creditAccountId),
     ("creditCode", $"CREDIT-{run}"));
 
+            var ledgerAccounts = await Send(HttpMethod.Get, "/api/v1/ledger-accounts", null, manager, 200);
+            Check(ledgerAccounts.EnumerateArray().Any(account => account.GetProperty("id").GetGuid() == debitAccountId), "Ledger accounts include seeded debit account");
+            Check(ledgerAccounts.EnumerateArray().Any(account => account.GetProperty("id").GetGuid() == creditAccountId), "Ledger accounts include seeded credit account");
+            await Send(HttpMethod.Get, "/api/v1/ledger-accounts", null, Token(adminId), 200);
+            await Send(HttpMethod.Get, "/api/v1/ledger-accounts", null, worker, 403);
+            await Send(HttpMethod.Get, "/api/v1/ledger-accounts", null, null, 401);
+            Console.WriteLine("PASS HTTP day 6: ledger account read model and manager/admin authorization.");
+
             var journalRequest = new CreateJournalRequest(
                 journalId,
                 $"JOURNAL-{run}",
@@ -684,6 +692,30 @@ internal static class ApiLabProgram
                 "PASS HTTP day 5: concurrent journal requests do not duplicate data.");
             if (args.Contains("--postman"))
                 await PostmanLabRunner.RunAsync(root, client, manager, worker, warehouseId, productId, run);
+            await Exec("update public.inventory_items set stock=1 where warehouse_id=@w and product_id=@p", ("w", warehouseId), ("p", emptyProduct));
+            var fractionalOrder = await Post("/api/v1/orders", Request("fractional-money") with
+            {
+                Tax = 0.02m,
+                ShippingFee = 0.01m,
+                Items = [new(emptyProduct, 0.123m, 10.12m)]
+            }, 201);
+            var fractionalId = fractionalOrder.GetProperty("id").GetGuid();
+            var storedFractional = await Send(HttpMethod.Get, $"/api/v1/orders/{fractionalId}", null, manager, 200);
+            Check(storedFractional.GetProperty("items")[0].GetProperty("lineTotal").GetDecimal() == 1.24476m, "Line total preserves five decimal places");
+            Check(storedFractional.GetProperty("subtotal").GetDecimal() == 1.24476m, "Subtotal preserves five decimal places");
+            Check(storedFractional.GetProperty("total").GetDecimal() == 1.27476m, "Total preserves five decimal places with tax and shipping");
+            var sku = storedFractional.GetProperty("items")[0].GetProperty("productSku").GetString();
+            var skuSummary = await Send(HttpMethod.Get, "/api/v1/finance-summary/sku", null, manager, 200);
+            var fractionalSku = skuSummary.EnumerateArray().Single(row => row.GetProperty("label").GetString() == sku);
+            Check(fractionalSku.GetProperty("revenue").GetString() == "1.24476", "SKU report preserves exact line revenue");
+            Check(fractionalSku.GetProperty("quantity").GetString() == "0.123", "SKU report preserves quantity precision");
+            var channelSummary = await Send(HttpMethod.Get, "/api/v1/finance-summary/channels", null, manager, 200);
+            Check(channelSummary.EnumerateArray().Any(row => row.GetProperty("id").GetString() == channelConnectionId.ToString()), "Channel report includes seeded channel");
+            await Send(HttpMethod.Get, "/api/v1/finance-summary/sku", null, worker, 403);
+            await Send(HttpMethod.Get, "/api/v1/finance-summary/channels", null, worker, 403);
+
+            await Post($"/api/v1/orders/{fractionalId}/cancel", new CancelOrderRequest($"{run}:fractional-money-clean", "Cleanup"));
+
             Console.WriteLine($"PASS HTTP TOTAL: {assertions} assertions; real ASP.NET pipeline/JWT/profile/database, local lab signing key only.");
         }
         finally
