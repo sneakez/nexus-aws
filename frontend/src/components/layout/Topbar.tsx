@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, Bell, Menu, ChevronDown, Building2, Check, Clock, AlertTriangle, CheckCircle2, ChevronRight } from 'lucide-react';
+import { isMockMode } from '@/lib/config';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -66,7 +67,7 @@ export function Topbar({
   const { activeTenant, memberships, switchTenant } = useAuth();
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => isMockMode() ? INITIAL_NOTIFICATIONS : []);
 
   const switcherRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -191,7 +192,7 @@ export function Topbar({
           )}
 
           {/* Actionable Notifications Popover */}
-          <div className="relative" ref={notifRef}>
+          {isMockMode() && <div className="relative" ref={notifRef}>
             <button
               onClick={() => setShowNotifications(!showNotifications)}
               className={cn(
@@ -290,12 +291,12 @@ export function Topbar({
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
       </div>
 
       {/* Mobile search bar */}
-      <div className="md:hidden border-t border-slate-100 bg-white px-4 py-2">
+      {showSearch && <div className="md:hidden border-t border-slate-100 bg-white px-4 py-2">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -305,7 +306,7 @@ export function Topbar({
             className="w-full rounded-lg border border-[#D9E3E8] bg-slate-50 pl-9 pr-3 py-1.5 text-xs text-[#123A52] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E647F]/20"
           />
         </div>
-      </div>
+      </div>}
     </header>
   );
 }

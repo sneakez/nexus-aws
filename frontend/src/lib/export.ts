@@ -266,7 +266,7 @@ export function exportMarketingCampaignsToExcel(campaigns: import('@/analytics/t
     String(c.clicks),
     String(c.cpc),
     String(c.conversions),
-    String(Math.round(c.cpa)),
+    String(c.cpa),
     String(c.attributedRevenue),
     (c.netSpend ?? c.adSpend) > 0 ? String(c.roas) : 'Chua du du lieu',
     String(c.cogs),

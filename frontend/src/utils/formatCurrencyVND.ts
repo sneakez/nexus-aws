@@ -1,7 +1,7 @@
 const vndFormatter = new Intl.NumberFormat('vi-VN', {
   style: 'currency',
   currency: 'VND',
-  maximumFractionDigits: 0,
+  maximumFractionDigits: 5,
 });
 
 export function formatCurrencyVND(value: number) {

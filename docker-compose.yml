@@ -8,6 +8,7 @@ services:
       - "5145:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      Frontend__Origin: ${FRONTEND_ORIGIN:-http://localhost:5174}
       Supabase__Url: ${SUPABASE_URL:-}
       ConnectionStrings__Postgres: ${SUPABASE_DB_CONNECTION_STRING:-}
     restart: unless-stopped
@@ -16,7 +17,8 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_DATA_MODE: ${VITE_DATA_MODE:-mock}
+        VITE_DATA_MODE: ${VITE_DATA_MODE:-supabase}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:5145}
         VITE_SUPABASE_URL: ${SUPABASE_URL:-}
         VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
     ports:

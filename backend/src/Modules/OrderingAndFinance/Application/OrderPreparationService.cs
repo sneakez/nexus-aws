@@ -27,10 +27,7 @@ public sealed class OrderPreparationService(
                 throw new ArgumentException(
                     $"Sản phẩm {item.ProductId} không tồn tại hoặc đã ngừng hoạt động.");
 
-            var lineTotal = decimal.Round(
-                item.Quantity * item.UnitPrice,
-                2,
-                MidpointRounding.AwayFromZero);
+            var lineTotal = item.Quantity * item.UnitPrice;
 
             if (lineTotal > 999999999999.99m)
                 throw new ArgumentException(

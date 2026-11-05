@@ -61,10 +61,11 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
     CancellationToken cancellationToken = default)
     {
         const string sql = """
-        select id, order_number, status::text, customer_id,
-               subtotal, tax, shipping_fee, total, created_at
-        from public.orders
-        where id = @id;
+        select o.id, o.order_number, o.status::text, o.customer_id,
+               o.subtotal, o.tax, o.shipping_fee, o.total, o.created_at, c.name
+        from public.orders o
+        left join public.customers c on c.id = o.customer_id
+        where o.id = @id;
 
         select id, product_id, product_sku, product_name,
                quantity, unit_price, line_total, unit_cost
@@ -94,7 +95,8 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
             reader.GetDecimal(6),
             reader.GetDecimal(7),
             reader.GetFieldValue<DateTimeOffset>(8),
-            items);
+            items,
+            reader.IsDBNull(9) ? null : reader.GetString(9));
 
         await reader.NextResultAsync(cancellationToken);
 

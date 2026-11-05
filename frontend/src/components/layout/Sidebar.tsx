@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { isMockMode } from '@/lib/config';
+import React, { useState, useMemo } from 'react';
 import {
   SquaresFour,
   Pulse,
@@ -15,10 +16,8 @@ import {
   Calculator,
   PlugsConnected,
   SignOut,
-  CaretDown,
   CaretLeft,
   CaretRight,
-  Check,
   type Icon as PhosphorIcon
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/cn';
@@ -57,7 +56,7 @@ interface SidebarProps {
 
 const ROLE_LABELS: Record<TenantRole, string> = {
   owner: '👑 Chủ Doanh Nghiệp',
-  admin: '⚡ Admin Quản Trị',
+  admin: 'Chủ doanh nghiệp (Admin)',
   manager: '📊 Trưởng Phòng OMS',
   warehouse: '📦 Nhân Viên Kho',
   finance: '💰 Kế Toán Tài Chính',
@@ -65,17 +64,9 @@ const ROLE_LABELS: Record<TenantRole, string> = {
   viewer: '👁️ Người Xem (Chỉ Đọc)',
 };
 
-const ALL_ROLES: Array<{ id: TenantRole; label: string; desc: string }> = [
-  { id: 'owner', label: '👑 Chủ Doanh Nghiệp (Owner)', desc: 'Toàn quyền quản trị & duyệt tài chính' },
-  { id: 'manager', label: '📊 Trưởng Phòng OMS', desc: 'Quản lý đơn hàng, xuất nhập tồn' },
-  { id: 'warehouse', label: '📦 Nhân Viên Kho', desc: 'Soạn hàng, đóng gói & kiểm định' },
-];
-
 export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose }: SidebarProps) {
-  const { profile, signOut, switchRole, activeRole } = useAuth();
+  const { profile, signOut, activeRole } = useAuth();
   const currentRole: TenantRole = activeRole ?? 'owner';
-  const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
-  const roleSwitcherRef = useRef<HTMLDivElement>(null);
 
   // Persistent sidebar collapse state (True: icon-only mini sidebar, False: full expanded sidebar)
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
@@ -91,7 +82,9 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
       const next = !prev;
       try {
         localStorage.setItem('nexus_sidebar_collapsed', String(next));
-      } catch {}
+      } catch {
+        // Keep the current layout when browser storage is unavailable.
+      }
       // Fire window resize so all responsive charts immediately adapt to the expanded canvas
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
@@ -100,19 +93,9 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
     });
   };
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (roleSwitcherRef.current && !roleSwitcherRef.current.contains(e.target as Node)) {
-        setShowRoleSwitcher(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const allowedPages = useMemo(
-    () => new Set(getAllowedPagesForRole(currentRole)),
-    [currentRole]
+    () => new Set(getAllowedPagesForRole(isMockMode() ? currentRole : activeRole, !isMockMode())),
+    [currentRole, activeRole]
   );
 
   const filteredGroups = useMemo(() => {
@@ -306,58 +289,13 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
           ))}
         </nav>
 
-        {/* User Profile & Interactive Role Switcher Footer */}
-        <div className="relative p-2.5 border-t border-white/5 shrink-0 bg-transparent" ref={roleSwitcherRef}>
-          {/* Quick Role Switcher Popover */}
-          {showRoleSwitcher && (
-            <div
-              className={cn(
-                'p-2 bg-[#0C2739] border border-[#1E647F] rounded-xl shadow-2xl z-50 animate-scale-in text-xs space-y-1',
-                isCollapsed
-                  ? 'absolute left-full bottom-2 ml-3 w-64'
-                  : 'absolute bottom-full left-3 right-3 mb-2'
-              )}
-            >
-              <div className="px-2 py-1.5 text-[10px] font-bold text-teal-300 uppercase tracking-wider border-b border-slate-700/60 mb-1 flex items-center justify-between">
-                <span>Chuyển Đổi Vai Trò</span>
-                <span className="text-slate-400 font-mono">3 ROLES</span>
-              </div>
-              <div className="max-h-60 overflow-y-auto space-y-0.5">
-                {ALL_ROLES.map((r) => {
-                  const isCurrent = currentRole === r.id;
-                  return (
-                    <button
-                      key={r.id}
-                      onClick={() => {
-                        switchRole(r.id);
-                        setShowRoleSwitcher(false);
-                      }}
-                      className={cn(
-                        'w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer group',
-                        isCurrent
-                          ? 'bg-[#1E647F] text-white font-bold'
-                          : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                      )}
-                    >
-                      <div className="min-w-0 flex-1 pr-2">
-                        <p className="text-xs truncate">{r.label}</p>
-                        <p className="text-[10px] text-slate-400 truncate">{r.desc}</p>
-                      </div>
-                      {isCurrent && <Check size={14} className="text-[#27B4A0] shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
+        <div className="p-2.5 border-t border-white/5 shrink-0">
           {!isCollapsed ? (
             /* Expanded Footer: User Avatar + Name + Role + Logout Button */
             <div className="flex items-center justify-between gap-1.5 p-1.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-              <button
-                onClick={() => setShowRoleSwitcher(!showRoleSwitcher)}
-                className="flex items-center gap-2 min-w-0 text-left flex-1 cursor-pointer group"
-                title="Nhấn để chuyển đổi vai trò (Role Switcher)"
+              <div
+                className="flex items-center gap-2 min-w-0 text-left flex-1 group"
+                title={ROLE_LABELS[currentRole]}
               >
                 <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0284C7]/60 to-[#0369A1] border border-[#0284C7]/60 flex items-center justify-center font-bold text-sky-200 text-xs shrink-0 group-hover:border-sky-400 transition-colors">
                   {profile?.full_name?.charAt(0) || 'U'}
@@ -370,10 +308,9 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
                     <p className="text-[10px] text-[#38BDF8] truncate font-medium">
                       {ROLE_LABELS[currentRole]}
                     </p>
-                    <CaretDown size={11} className={cn('text-slate-400 transition-transform', showRoleSwitcher && 'rotate-180')} />
                   </div>
                 </div>
-              </button>
+              </div>
 
               <button
                 onClick={() => signOut()}
@@ -386,13 +323,12 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
           ) : (
             /* Collapsed Footer: Centered Avatar Icon + Logout Icon */
             <div className="flex flex-col items-center gap-2">
-              <button
-                onClick={() => setShowRoleSwitcher(!showRoleSwitcher)}
-                className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#0284C7]/60 to-[#0369A1] border border-[#0284C7]/60 flex items-center justify-center font-bold text-sky-200 text-xs hover:border-sky-400 transition-colors cursor-pointer"
-                title={`Vai trò: ${ROLE_LABELS[currentRole]} (Bấm để đổi)`}
+              <div
+                className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#0284C7]/60 to-[#0369A1] border border-[#0284C7]/60 flex items-center justify-center font-bold text-sky-200 text-xs hover:border-sky-400 transition-colors"
+                title={ROLE_LABELS[currentRole]}
               >
                 {profile?.full_name?.charAt(0) || 'U'}
-              </button>
+              </div>
 
               <button
                 onClick={() => signOut()}

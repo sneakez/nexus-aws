@@ -7,11 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "lint:live": "node scripts/lint-live.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run",
-    "test:ui:login": "node scripts/commerce-ui-login.mjs",
-    "test:ui": "node scripts/mvp-ui-smoke.mjs"
+    "test:ui:login": "node scripts/day6-auth-live-smoke.mjs",
+    "test:ui": "node scripts/day6-auth-live-smoke.mjs && node scripts/day6-orders-ui-smoke.mjs && node scripts/day6-inventory-finance-smoke.mjs && node scripts/day6-role-pages-audit.mjs",
+    "test:ui:orders": "node scripts/day6-orders-ui-smoke.mjs",
+    "test:ui:journals": "node scripts/day6-journals-ui-smoke.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

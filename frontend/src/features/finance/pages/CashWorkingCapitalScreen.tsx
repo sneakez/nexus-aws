@@ -1,3 +1,5 @@
+import { isMockMode } from '@/lib/config';
+import { BackendJournalsPage } from './BackendJournalsScreen';
 import { omsStore as mockStore } from '@/stores/omsStore';
 import { MoneyDialog, type MoneyAction } from '../components/MoneyDialog';
 import { useAuth } from '@/providers/AuthProvider';
@@ -47,6 +49,10 @@ import { formatCurrency } from '@/lib/utils';
 import { cn } from '@/lib/cn';
 
 export function CashWorkingCapitalPage() {
+  return isMockMode() ? <MockCashWorkingCapitalPage /> : <BackendJournalsPage />;
+}
+
+function MockCashWorkingCapitalPage() {
   const toast = useToast();
   const { activeRole } = useAuth();
   const [, revise] = useState(0);
