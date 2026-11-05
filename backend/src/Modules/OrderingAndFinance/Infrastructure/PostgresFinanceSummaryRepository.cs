@@ -35,7 +35,7 @@ public sealed class PostgresFinanceSummaryRepository(NpgsqlDataSource dataSource
             group by order_id
         ), summary as (
             select coalesce(c.id::text, 'unassigned') as id,
-                   coalesce(c.type || ' · ' || c.account_name, 'Chưa gắn kênh') as label,
+                   coalesce(c.type || ' · ' || c.account_name, 'Đơn nội bộ / chưa gán kênh') as label,
                    count(*) as order_count, sum(o.subtotal + o.shipping_fee) as revenue,
                    case when bool_and(i.cogs is not null) then sum(i.cogs) end as cogs,
                    sum(coalesce(f.operating, 0)) as operating, sum(coalesce(f.ads, 0)) as ads

@@ -1,11 +1,11 @@
 import { HierarchicalDataGrid, type DataGridColumnGroup } from '@/components/common/HierarchicalDataGrid';
 import { BackendOrderCreateModal } from '../components/BackendOrderCreateModal';
 import { BackendOrderDetailDrawer } from '../components/BackendOrderDetailDrawer';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { BackendOrderFinance } from '../components/BackendOrderFinance';
-import { getBackendReturn, returnStatusLabels, type BackendReturnCase } from '@/lib/backendOrderAfterSales';
+import { Modal } from '@/components/ui/Modal';
 import { Plus, RefreshCw, ShoppingCart } from 'lucide-react';
-import { getBackendOrders, type BackendOrderSummary } from '@/lib/backendOrders';
+import { ordersService, type BackendOrderSummary } from '@/services/orders.service';
 import { useAuth } from '@/providers/AuthProvider';
 import { formatDate } from '@/lib/utils';
 import { formatOrderMoney as formatCurrency } from '@/lib/orderFormatting';
@@ -71,40 +71,6 @@ function Overview({ orders, open }: { orders: BackendOrderSummary[]; open: (id: 
   </div>;
 }
 
-function ReturnLookup({ open }: { open: (id: string) => void }) {
-  const { session } = useAuth();
-  const [id, setId] = useState('');
-  const [result, setResult] = useState<BackendReturnCase | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const lock = useRef(false);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!session || lock.current) return;
-    lock.current = true; setBusy(true); setError(''); setResult(null);
-    try { setResult(await getBackendReturn(id.trim(), session.access_token)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Không tra cứu được yêu cầu.'); }
-    finally { lock.current = false; setBusy(false); }
-  }
-  return <section className="card space-y-3 p-5">
-    <h2 className="font-semibold text-ink-900">Tra cứu yêu cầu trả hàng</h2>
-    <form onSubmit={event => { void submit(event); }} className="flex flex-wrap items-end gap-3">
-      <label className="min-w-0 flex-1 text-sm font-medium">Mã yêu cầu
-        <input required aria-label="Tra cứu mã yêu cầu" value={id} onChange={event => setId(event.target.value)}
-          pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" maxLength={36}
-          className="input mt-1 w-full" />
-      </label>
-      <button type="submit" disabled={busy} className="btn-secondary">{busy ? 'Đang tra cứu…' : 'Tra cứu'}</button>
-    </form>
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {result && <div className="space-y-2 rounded-lg bg-ink-50 p-4 text-sm">
-      <p className="font-semibold">{returnStatusLabels[result.status] ?? result.status}</p>
-      <p className="whitespace-pre-wrap break-words">{result.reason}</p>
-      <p>{result.items.length} dòng sản phẩm</p>
-      <button type="button" className="btn-secondary" onClick={() => open(result.orderId)}>Mở đơn liên quan</button>
-    </div>}
-  </section>;
-}
 
 type OrdersView = 'orders' | 'dashboard' | 'fulfillment' | 'returns' | 'orderEconomics';
 const summaryStatuses: Partial<Record<OrdersView, string[]>> = {
@@ -121,7 +87,7 @@ const viewTitles: Record<OrdersView, string> = {
   orders: 'Quản Trị Đơn Hàng Đa Kênh', dashboard: 'Tổng quan đơn hàng', fulfillment: 'Xử lý đơn',
   returns: 'Đơn đủ điều kiện trả hàng', orderEconomics: 'Lợi nhuận từng đơn',
 };
-export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: string; view?: OrdersView }) {
+export function BackendOrdersPage({ search = '', view = 'orders', dateRange }: { search?: string; view?: OrdersView; dateRange?: { from: string; to: string } }) {
   const { session, activeRole } = useAuth();
   const token = session?.access_token;
   const [orders, setOrders] = useState<BackendOrderSummary[]>([]);
@@ -145,7 +111,7 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
       setLoading(false);
       return () => controller.abort();
     }
-    void getBackendOrders(token, controller.signal)
+    void ordersService.list(token, controller.signal, dateRange)
       .then(data => { if (!controller.signal.aborted) setOrders(data); })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
@@ -154,7 +120,7 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [token, revision]);
+  }, [token, revision, dateRange]);
 
   const scoped = orders.filter(order => {
     if (view === 'fulfillment') return ['pending', 'confirmed', 'processing'].includes(order.status);
@@ -175,7 +141,7 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
           <RefreshCw size={16} aria-hidden="true" className={loading ? 'animate-spin' : ''} />
           {loading ? 'Đang tải…' : 'Tải lại'}
         </button>
-        {view === 'orders' && (activeRole === 'admin' || activeRole === 'manager') && <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary inline-flex items-center gap-2"><Plus size={16} aria-hidden="true" />Tạo đơn hàng</button>}
+        {view === 'orders' && (activeRole === 'admin' || activeRole === 'manager') && <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary inline-flex items-center gap-2"><Plus size={16} aria-hidden="true" />Tạo đơn nội bộ</button>}
         </div>
       </header>
       {summaryStatuses[view] && !loading && !error && <dl className="grid gap-3 sm:grid-cols-3">
@@ -185,16 +151,6 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
         </div>)}
       </dl>}
       {view === 'dashboard' && !loading && !error && <Overview orders={orders} open={setSelectedId} />}
-      {view === 'returns' && <ReturnLookup open={setSelectedId} />}
-      {view === 'orderEconomics' && !loading && !error && <section className="card space-y-4 p-5">
-        <label className="block max-w-xl text-sm font-medium">Chọn đơn để phân tích lợi nhuận
-          <select className="input mt-1 w-full" value={financeId} onChange={event => setFinanceId(event.target.value)}>
-            <option value="">Chọn đơn hàng</option>
-            {orders.map(order => <option key={order.id} value={order.id}>{order.orderNumber} · {statuses[order.status] ?? order.status}</option>)}
-          </select>
-        </label>
-        {financeId && <BackendOrderFinance key={financeId} orderId={financeId} />}
-      </section>}
       {notice && <p role="status" className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">{notice}</p>}
 
       <div className="rounded-xl border border-ink-200 bg-white p-3 shadow-xs">
@@ -226,7 +182,7 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
               groups={orderGroups(setSelectedId)}
               rowKey={order => order.id}
               storageKey={'live-' + view}
-              onRowClick={order => setSelectedId(order.id)}
+              onRowClick={order => view === 'orderEconomics' ? setFinanceId(order.id) : setSelectedId(order.id)}
               externalSearchQuery={localSearch || search}
               onSearchQueryChange={setLocalSearch}
               searchPlaceholder="Tìm theo mã đơn…"
@@ -234,7 +190,7 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
               renderMobileCard={order => (
                 <div className="space-y-2 rounded-xl border border-ink-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <button type="button" className="font-mono text-sm font-semibold hover:underline" onClick={() => setSelectedId(order.id)}>{order.orderNumber}</button>
+                    <button type="button" className="font-mono text-sm font-semibold hover:underline" onClick={() => view === 'orderEconomics' ? setFinanceId(order.id) : setSelectedId(order.id)}>{order.orderNumber}</button>
                     <StatusBadge status={order.status} />
                   </div>
                   <div className="flex items-center justify-between gap-2 text-sm">
@@ -251,6 +207,9 @@ export function BackendOrdersPage({ search = '', view = 'orders' }: { search?: s
         setNotice('Đã tạo đơn ' + order.orderNumber + ' và giữ hàng thành công.'); setSelectedId(order.id);
       }} />}
       {selectedId && <BackendOrderDetailDrawer key={selectedId} orderId={selectedId} onClose={() => setSelectedId(null)} onChanged={() => setRevision(n => n + 1)} />}
+      {financeId && <Modal open title="Lợi nhuận đơn" onClose={() => setFinanceId('')} size="md">
+        <BackendOrderFinance key={financeId} orderId={financeId} />
+      </Modal>}
     </section>
   );
 }

@@ -7,7 +7,8 @@ public sealed record OrderSummary(
     string OrderNumber,
     string Status,
     decimal Total,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    Guid? ChannelConnectionId = null);
 public sealed record OrderLine(
     Guid Id,
     Guid? ProductId,
@@ -29,4 +30,5 @@ public sealed record OrderDetail(
     decimal Total,
     DateTimeOffset CreatedAt,
     IReadOnlyList<OrderLine> Items,
-    string? CustomerName = null);
+    string? CustomerName = null,
+    Guid? ChannelConnectionId = null);

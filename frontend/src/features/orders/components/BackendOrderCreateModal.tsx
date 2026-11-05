@@ -3,8 +3,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/providers/AuthProvider';
-import { createBackendOrder, getOrderCatalog, OrderApiError,
-  type BackendCreateOrder, type BackendOrderDetail, type OrderCatalogOption } from '@/lib/backendOrders';
+import { ApiError } from '@/services/apiClient';
+import { ordersService,
+  type BackendCreateOrder, type BackendOrderDetail, type OrderCatalogOption } from '@/services/orders.service';
 
 type DraftLine = { rowId: string; productId: string; quantity: string; unitPrice: string };
 const inputClass = 'mt-1 w-full rounded-lg border border-ink-300 bg-white p-2 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-ink-50';
@@ -55,7 +56,7 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     setCatalogLoading(true);
     setCatalogError(null);
     if (!token) { setCatalogLoading(false); setCatalogError('Vui lòng đăng nhập lại.'); return () => controller.abort(); }
-    void getOrderCatalog(token, controller.signal)
+    void ordersService.catalog(token, controller.signal)
       .then(data => { if (!controller.signal.aborted) { setProducts(data.products); setWarehouses(data.warehouses); setCustomers(data.customers); } })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setCatalogError(cause instanceof Error ? cause.message : 'Không tải được danh mục.');
@@ -92,13 +93,13 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
       sessionStorage.setItem(storageKey, JSON.stringify(payload));
       setPending(payload);
       requestStarted = true;
-      const created = await createBackendOrder(payload, token);
+      const created = await ordersService.create(payload, token);
       sessionStorage.removeItem(storageKey);
       setPending(null);
       onCreated(created);
     } catch (cause: unknown) {
       if (!requestStarted) { setError('Không lưu được yêu cầu trên trình duyệt. Chưa gửi tạo đơn; hãy kiểm tra quyền lưu trữ rồi thử lại.'); return; }
-      const rejected = cause instanceof OrderApiError && [400, 404, 409, 422].includes(cause.status);
+      const rejected = cause instanceof ApiError && [400, 404, 409, 422].includes(cause.status);
       if (rejected) {
         sessionStorage.removeItem(storageKey);
         setPending(null);

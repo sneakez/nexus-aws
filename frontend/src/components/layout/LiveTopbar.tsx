@@ -8,10 +8,13 @@ interface TopbarProps {
   onMobileMenu?: () => void;
   onNavigate?: (pageId: string) => void;
   showSearch?: boolean;
+  dateFrom: string;
+  dateTo: string;
+  onDateRangeChange: (from: string, to: string) => void;
 }
 export function Topbar({
   title, search, onSearch, searchPlaceholder = 'Tìm kiếm…',
-  onMobileMenu, showSearch = true,
+  onMobileMenu, showSearch = true, dateFrom, dateTo, onDateRangeChange,
 }: TopbarProps) {
   return <header className="sticky top-0 z-30 border-b border-[#D9E3E8] bg-white/95 backdrop-blur-md">
     <div className="flex items-center justify-between gap-3 px-4 py-3 lg:px-8">
@@ -22,6 +25,11 @@ export function Topbar({
           <ChevronRight size={13} className="hidden shrink-0 text-slate-400 sm:inline" />
           <span className="truncate font-bold text-[#123A52]">{title}</span>
         </nav>
+      </div>
+      <div className="hidden items-center gap-1.5 lg:flex" aria-label="Khoảng thời gian áp dụng toàn hệ thống">
+        <input aria-label="Từ ngày" type="date" value={dateFrom} max={dateTo} onChange={event => onDateRangeChange(event.target.value, dateTo)} className="input w-36 text-xs" />
+        <span className="text-xs text-slate-500">đến</span>
+        <input aria-label="Đến ngày" type="date" value={dateTo} min={dateFrom} onChange={event => onDateRangeChange(dateFrom, event.target.value)} className="input w-36 text-xs" />
       </div>
       {showSearch && <label className="relative hidden md:block">
         <Search size={14} aria-hidden="true" className="absolute left-2.5 top-2.5 text-slate-500" />

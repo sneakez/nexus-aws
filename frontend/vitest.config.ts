@@ -7,9 +7,9 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/tests/unitSetup.ts'],
     env: {
-      VITE_DATA_MODE: 'mock',
-      VITE_SUPABASE_URL: 'https://mock.supabase.co',
-      VITE_SUPABASE_ANON_KEY: 'mock-anon-key',
+      // Isolated values let service modules initialise without using a developer's real credentials.
+      VITE_SUPABASE_URL: 'https://test.invalid',
+      VITE_SUPABASE_ANON_KEY: 'test-anon-key',
     },
   },
 });

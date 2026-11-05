@@ -41,14 +41,6 @@ export interface DataGridColumnGroup<T> {
   defaultVisible?: boolean;
 }
 
-export type GridPresetType = 'simple' | 'operations' | 'analytics' | 'all';
-
-export interface GridPreset {
-  id: GridPresetType;
-  label: string;
-  groupIds: string[];
-}
-
 export interface HierarchicalDataGridProps<T> {
   data: T[];
   groups: DataGridColumnGroup<T>[];
@@ -58,6 +50,7 @@ export interface HierarchicalDataGridProps<T> {
   onRowClick?: (item: T) => void;
   searchPlaceholder?: string;
   searchFilter?: (item: T, query: string) => boolean;
+  showSearch?: boolean;
   filterControls?: React.ReactNode;
   title?: string;
   subtitle?: string;
@@ -74,7 +67,6 @@ export interface HierarchicalDataGridProps<T> {
   externalSearchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
   storageKey?: string;
-  customPresets?: GridPreset[];
   className?: string;
 }
 
@@ -87,6 +79,7 @@ export function HierarchicalDataGrid<T>({
   onRowClick,
   searchPlaceholder = 'Tìm kiếm dữ liệu...',
   searchFilter,
+  showSearch = true,
   filterControls,
   title,
   subtitle,
@@ -103,7 +96,6 @@ export function HierarchicalDataGrid<T>({
   externalSearchQuery,
   onSearchQueryChange,
   storageKey,
-  customPresets,
   className
 }: HierarchicalDataGridProps<T>) {
   // Search query
@@ -127,43 +119,6 @@ export function HierarchicalDataGrid<T>({
   const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(new Set());
   const selectedIds = controlledSelectedIds ?? internalSelectedIds;
   const isSelectionEnabled = selectable || Boolean(bulkActions);
-
-  // Default presets based on groups
-  const presets: GridPreset[] = useMemo(() => {
-    if (customPresets && customPresets.length > 0) return customPresets;
-    const allGroupIds = groups.map(g => g.id);
-
-    const infoIds = groups.filter(g => g.id.includes('info') || g.id.includes('sku') || g.id.includes('order')).map(g => g.id);
-    const financeIds = groups.filter(g => g.id.includes('finance') || g.id.includes('revenue')).map(g => g.id);
-    const opIds = groups.filter(g => g.id.includes('operations') || g.id.includes('stock') || g.id.includes('inventory')).map(g => g.id);
-    const econIds = groups.filter(g => g.id.includes('economics') || g.id.includes('margin') || g.id.includes('costs')).map(g => g.id);
-    const actionIds = groups.filter(g => g.id.includes('action')).map(g => g.id);
-
-    return [
-      {
-        id: 'simple',
-        label: 'Đơn giản',
-        groupIds: Array.from(new Set([...infoIds, ...(financeIds.length ? financeIds : opIds), ...actionIds]))
-      },
-      {
-        id: 'operations',
-        label: 'Vận hành',
-        groupIds: Array.from(new Set([...infoIds, ...opIds, ...actionIds]))
-      },
-      {
-        id: 'analytics',
-        label: 'Phân tích',
-        groupIds: Array.from(new Set([...infoIds, ...financeIds, ...econIds, ...actionIds]))
-      },
-      {
-        id: 'all',
-        label: 'Toàn bộ',
-        groupIds: allGroupIds
-      }
-    ];
-  }, [groups, customPresets]);
-
-  const [activePreset, setActivePreset] = useState<GridPresetType | null>(null);
 
   // Visible groups with localStorage initialization
   const [visibleGroupIds, setVisibleGroupIds] = useState<Set<string>>(() => {
@@ -198,15 +153,6 @@ export function HierarchicalDataGrid<T>({
       } catch (e) {
         console.warn('Failed to save grid column preferences', e);
       }
-    }
-  };
-
-  const applyPreset = (presetId: GridPresetType) => {
-    const target = presets.find(p => p.id === presetId);
-    if (target) {
-      const nextSet = new Set(target.groupIds);
-      setActivePreset(presetId);
-      savePreferences(nextSet);
     }
   };
 
@@ -361,7 +307,6 @@ export function HierarchicalDataGrid<T>({
   };
 
   const toggleGroupVisibility = (groupId: string) => {
-    setActivePreset(null);
     const next = new Set(visibleGroupIds);
     if (next.has(groupId)) {
       if (next.size > 1) {
@@ -424,7 +369,7 @@ export function HierarchicalDataGrid<T>({
             </div>
           )}
 
-          {searchFilter && (
+          {showSearch && searchFilter && (
             <div className="relative w-64 sm:w-72 md:w-80 shrink-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -443,28 +388,8 @@ export function HierarchicalDataGrid<T>({
           {filterControls}
         </div>
 
-        {/* Right Zone: Presets, Column Selector, Expand/Collapse & Actions (View Settings) */}
+        {/* Right Zone: Column Selector, Expand/Collapse & Actions */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* 4 Standard Presets */}
-          <div className="hidden lg:flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-lg border border-slate-200 shrink-0">
-            <span className="text-xs font-bold text-slate-500 uppercase px-1.5">Góc nhìn:</span>
-            {presets.map(p => (
-              <button
-                key={p.id}
-                onClick={() => applyPreset(p.id)}
-                className={cn(
-                  'px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer',
-                  activePreset === p.id
-                    ? 'bg-white text-[#123A52] shadow-2xs font-bold border border-slate-200'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                )}
-                title={`Chuyển sang góc nhìn ${p.label}`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
           {/* Column Group Toggle Dropdown */}
           <div className="relative">
             <button
@@ -482,32 +407,11 @@ export function HierarchicalDataGrid<T>({
 
             {showGroupSelector && (
               <div className="absolute right-0 top-full mt-1.5 w-64 rounded-xl bg-white border border-slate-200 shadow-xl z-50 p-2 space-y-1.5 animate-fade-in-up text-xs font-sans">
-                <div className="lg:hidden pb-1.5 border-b border-slate-100">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Góc nhìn mẫu:</span>
-                  <div className="grid grid-cols-2 gap-1">
-                    {presets.map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => applyPreset(p.id)}
-                        className={cn(
-                          'px-2 py-1 rounded text-[10px] font-bold border text-center transition-all',
-                          activePreset === p.id
-                            ? 'bg-teal-50 border-teal-500 text-teal-800'
-                            : 'bg-slate-50 border-slate-200 text-slate-600'
-                        )}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div className="px-2 py-1 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <span>Ẩn / Hiện Nhóm Cột</span>
                   <button
                     onClick={() => {
                       const all = new Set(groups.map(g => g.id));
-                      setActivePreset('all');
                       savePreferences(all);
                     }}
                     className="text-teal-600 hover:text-teal-700 font-normal normal-case cursor-pointer"
@@ -563,14 +467,12 @@ export function HierarchicalDataGrid<T>({
       {/* Main Table: Desktop & Tablet */}
       <div className="hidden md:block overflow-x-auto relative">
         <table className="w-full text-sm text-left border-separate border-spacing-0">
-          {/* Level 1: Grouped Column Headers */}
           <thead>
-            <tr className="bg-slate-100/90 text-slate-700 font-sans text-xs font-bold uppercase tracking-wider">
-              {/* Select All Checkbox Header */}
+            <tr className="bg-slate-50 text-slate-700 font-sans font-bold text-xs sm:text-sm">
               {isSelectionEnabled && (
                 <th
                   style={{ width: 44, minWidth: 44, maxWidth: 44 }}
-                  className="py-2.5 px-2.5 text-center sticky left-0 bg-slate-100 z-30 border-r border-b border-slate-200"
+                  className="py-2.5 px-2.5 text-center sticky left-0 bg-[#F8FAFC] z-30 border-r border-b border-slate-200"
                 >
                   <input
                     ref={headerCheckboxRef}
@@ -581,54 +483,6 @@ export function HierarchicalDataGrid<T>({
                     title="Chọn tất cả trên trang hiện tại"
                   />
                 </th>
-              )}
-
-              {renderExpandedRow && (
-                <th
-                  style={{ width: 36, minWidth: 36, maxWidth: 36 }}
-                  className={cn(
-                    'py-2.5 px-2 text-center z-30 border-r border-b border-slate-200 bg-slate-100',
-                    isSelectionEnabled ? 'sticky left-[44px]' : 'sticky left-0'
-                  )}
-                />
-              )}
-
-              {activeGroups.map((group, gIdx) => {
-                const isGroupSticky = group.columns.length > 0 && group.columns.every(c => c.sticky === 'left');
-                const groupStickyPos = isGroupSticky
-                  ? (isSelectionEnabled ? (renderExpandedRow ? 'left-[80px]' : 'left-[44px]') : (renderExpandedRow ? 'left-9' : 'left-0'))
-                  : undefined;
-
-                return (
-                  <th
-                    key={group.id}
-                    colSpan={group.columns.length}
-                    className={cn(
-                      'py-2.5 px-4 font-black text-slate-800 text-center border-r border-b border-slate-200 last:border-r-0 whitespace-nowrap',
-                      gIdx % 2 === 0 ? 'bg-[#F1F5F9]' : 'bg-teal-50/70 text-teal-900',
-                      isGroupSticky && cn('sticky z-30 bg-[#F1F5F9] border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)]', groupStickyPos)
-                    )}
-                  >
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>{group.title}</span>
-                      {group.badge && (
-                        <span className={cn('badge text-[11px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap', group.badgeColor || 'bg-teal-100 text-teal-800 border-teal-200')}>
-                          {group.badge}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                );
-              })}
-            </tr>
-
-            {/* Level 2: Individual Sub-Column Headers */}
-            <tr className="bg-slate-50 text-slate-700 font-sans font-bold text-xs sm:text-sm">
-              {isSelectionEnabled && (
-                <th
-                  style={{ width: 44, minWidth: 44, maxWidth: 44 }}
-                  className="py-2.5 px-2.5 text-center sticky left-0 bg-[#F8FAFC] z-30 border-r border-b border-slate-200"
-                />
               )}
 
               {renderExpandedRow && (

@@ -12,4 +12,5 @@ public sealed record CreateOrderRequest(
     Guid WarehouseId,
     decimal Tax,
     decimal ShippingFee,
-    IReadOnlyList<CreateOrderLineRequest> Items);
+    IReadOnlyList<CreateOrderLineRequest> Items,
+    Guid? ChannelConnectionId = null);

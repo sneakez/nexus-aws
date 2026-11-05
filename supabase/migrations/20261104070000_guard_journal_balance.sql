@@ -15,7 +15,7 @@ begin
     end if;
 end;
 $$;
-create function public.lock_journal_parent()
+create or replace function public.lock_journal_parent()
 returns trigger
 language plpgsql
 set search_path = public
@@ -48,13 +48,14 @@ begin
 end;
 $$;
 
+drop trigger if exists journal_lines_lock_parent on public.journal_lines;
 create trigger journal_lines_lock_parent
 before insert or update or delete
 on public.journal_lines
 for each row
 execute function public.lock_journal_parent();
 
-create function public.assert_journal_balanced(p_journal_id uuid)
+create or replace function public.assert_journal_balanced(p_journal_id uuid)
 returns void
 language plpgsql
 set search_path = public
@@ -88,7 +89,7 @@ begin
 end;
 $$;
 
-create function public.check_journal_balance_trigger()
+create or replace function public.check_journal_balance_trigger()
 returns trigger
 language plpgsql
 set search_path = public
@@ -116,6 +117,7 @@ begin
 end;
 $$;
 
+drop trigger if exists journal_header_balance_check on public.journal_entries;
 create constraint trigger journal_header_balance_check
 after insert or update
 on public.journal_entries
@@ -123,6 +125,7 @@ deferrable initially deferred
 for each row
 execute function public.check_journal_balance_trigger();
 
+drop trigger if exists journal_lines_balance_check on public.journal_lines;
 create constraint trigger journal_lines_balance_check
 after insert or update or delete
 on public.journal_lines

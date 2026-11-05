@@ -38,6 +38,7 @@ public sealed class BrandsController(BrandService brands) : ControllerBase
     [Authorize(Policy = Policies.ManagerOrAdmin)]
     public async Task<ActionResult<Brand>> Update(Guid id, BrandRequest request, CancellationToken cancellationToken)
     {
+        //Nếu không lấy được name từ request thì trả về lỗi
         if (!TryGetName(request, out var name, out var error)) return error!;
 
         try

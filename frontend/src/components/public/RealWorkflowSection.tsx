@@ -9,7 +9,7 @@ import {
   Calculator 
 } from 'lucide-react';
 
-export function RealWorkflowSection({ onNavigate }: { onNavigate?: (path: string) => void } = {}) {
+export function RealWorkflowSection() {
   const [activeStep, setActiveStep] = useState<number>(2); // Default to Step 3: Giữ tồn
 
   const steps = [

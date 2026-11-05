@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
-import { OrderApiError, type BackendOrderDetail } from '@/lib/backendOrders';
-import { createBackendReturn, getBackendReturn, returnStatusLabels, type BackendReturnRequest, type BackendReturnCase } from '@/lib/backendOrderAfterSales';
+import { ApiError } from '@/services/apiClient';
+import type { BackendOrderDetail } from '@/services/orders.service';
+import { afterSalesService, returnStatusLabels, type BackendReturnRequest, type BackendReturnCase } from '@/services/afterSales.service';
 
 function restore(key: string): BackendReturnRequest | null {
   try {
@@ -48,12 +49,12 @@ export function BackendOrderReturns({ order }: { order: BackendOrderDetail }) {
     try {
       sessionStorage.setItem(storageKey, JSON.stringify(request)); setPending(request);
       sent = true;
-      const created = await createBackendReturn(request, session.access_token);
+      const created = await afterSalesService.createReturn(request, session.access_token);
       sessionStorage.removeItem(storageKey); setPending(null); setResult(created); setLookup(created.id);
       setOpen(false); setReason(''); setQuantities(Object.fromEntries(order.items.map(item => [item.id, '0'])));
     } catch (cause: unknown) {
       if (!sent) { setError('Không lưu được yêu cầu. Chưa gửi trả hàng.'); return; }
-      const rejected = cause instanceof OrderApiError && [400, 404, 409, 422].includes(cause.status);
+      const rejected = cause instanceof ApiError && [400, 404, 409, 422].includes(cause.status);
       if (rejected) { sessionStorage.removeItem(storageKey); setPending(null); }
       setError(rejected && cause instanceof Error ? cause.message : 'Chưa xác nhận được kết quả trả hàng. Giữ nguyên yêu cầu và kiểm tra lại để tránh tạo trùng.');
     } finally { lock.current = false; setBusy(false); }
@@ -63,7 +64,7 @@ export function BackendOrderReturns({ order }: { order: BackendOrderDetail }) {
     if (!session || lookupLock.current) return;
     lookupLock.current = true; setLookingUp(true); setLookupError(null); setResult(null);
     try {
-      const value = await getBackendReturn(lookup.trim(), session.access_token);
+      const value = await afterSalesService.getReturn(lookup.trim(), session.access_token);
       if (value.orderId !== order.id) throw new Error('Yêu cầu trả hàng không thuộc đơn đang xem.');
       setResult(value);
     } catch (cause: unknown) { setLookupError(cause instanceof Error ? cause.message : 'Không tra được yêu cầu.'); }

@@ -1,7 +1,8 @@
 // ============ Tenant / SaaS Types ============
 
 export type TenantStatus = 'active' | 'suspended' | 'closed';
-export type BusinessRole = 'owner' | 'admin' | 'manager' | 'warehouse' | 'finance' | 'growth' | 'viewer';
+// MVP single-organization roles. Backend returns one of these values from /session/me.
+export type BusinessRole = 'admin' | 'manager' | 'warehouse';
 export type TenantRole = BusinessRole;
 export type MembershipStatus = 'active' | 'invited' | 'suspended';
 
@@ -400,7 +401,7 @@ export interface StockTransfer {
   status: TransferStatus;
   notes: string | null;
   tracking_number?: string;
-  transfer_items?: any[];
+  transfer_items?: unknown[];
   created_at: string;
   updated_at?: string;
   from_warehouse?: Warehouse;
@@ -786,7 +787,7 @@ export interface ReturnItem {
   missing_qty?: number;
   qc_pass_qty?: number;
   qc_fail_qty?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 export type PickingWave = FulfillmentWave;
 export type Transfer = StockTransfer;

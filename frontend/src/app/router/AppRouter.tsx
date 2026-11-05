@@ -1,23 +1,20 @@
 import { LoginPage } from '@/features/auth';
 import { useAuth } from '@/providers/AuthProvider';
 import { FullPageSpinner } from '@/components/ui/Spinner';
-import { AppShell } from '../layout/AppShell';
+import { AppShell } from '../layout/LiveAppShell';
 import { useAppRouter } from './useAppRouter';
-import { isMockMode } from '@/lib/config';
 export function AppRouter() {
   const { path, navigate } = useAppRouter();
 
 const {
   session,
   loading,
-  activeTenant,
-  memberships,
   activeRole,
   authError,
   signOut,
 } = useAuth();
   if (loading) return <FullPageSpinner label="Đang khởi tạo hệ thống..." />;
-  if (!isMockMode() && authError) {
+  if (authError) {
   return (
     <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
       <div className="max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
@@ -46,11 +43,7 @@ const {
 
   if (path.startsWith('/app')) {
     if (!session) return <LoginPage onNavigate={next => navigate(next === '/login' ? '/login' : '/app')} />;
-    if (
-  isMockMode()
-    ? memberships.length === 0 && !activeTenant
-    : !activeRole
-) {
+    if (!activeRole) {
       return (
         <div className="min-h-screen grid place-items-center bg-slate-50 p-6">
           <div className="max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">

@@ -1,7 +1,7 @@
 import { PageHeader } from '@/components/common/PageHeader';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useAuth } from '@/providers/AuthProvider';
-import { getLedgerAccounts, getBackendJournal, type BackendLedgerAccount, type BackendJournalDetail } from '@/lib/backendJournals';
+import { journalsService, type BackendLedgerAccount, type BackendJournalDetail } from '@/services/journals.service';
 import { formatOrderMoney } from '@/lib/orderFormatting';
 import { BackendJournalForm } from '../components/BackendJournalForm';
 
@@ -22,7 +22,7 @@ export function BackendJournalsPage() {
     const controller = new AbortController();
     setAccounts(null); setCatalogError(null);
     if (!allowed || !token) return () => controller.abort();
-    void getLedgerAccounts(token, controller.signal)
+    void journalsService.listAccounts(token, controller.signal)
       .then(data => { if (!controller.signal.aborted) setAccounts(data); })
       .catch((cause: unknown) => { if (!controller.signal.aborted) setCatalogError(cause instanceof Error ? cause.message : 'Không tải được tài khoản.'); });
     return () => controller.abort();
@@ -31,7 +31,7 @@ export function BackendJournalsPage() {
     event.preventDefault();
     if (!token || !allowed || lock.current) return;
     lock.current = true; setBusy(true); setError(null); setJournal(null);
-    try { setJournal(await getBackendJournal(lookup.trim(), token)); }
+    try { setJournal(await journalsService.get(lookup.trim(), token)); }
     catch (cause: unknown) { setError(cause instanceof Error ? cause.message : 'Không tìm được bút toán.'); }
     finally { lock.current = false; setBusy(false); }
   }

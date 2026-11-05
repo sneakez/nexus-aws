@@ -1,4 +1,3 @@
-import { isMockMode } from '@/lib/config';
 import React, { useState, useMemo } from 'react';
 import {
   SquaresFour,
@@ -7,6 +6,7 @@ import {
   Truck,
   ArrowUUpLeft,
   Users,
+  Package,
   Warehouse,
   ArrowsLeftRight,
   Receipt,
@@ -17,18 +17,18 @@ import {
   PlugsConnected,
   SignOut,
   CaretLeft,
-  CaretRight,
   type Icon as PhosphorIcon
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/providers/AuthProvider';
 import { getAllowedPagesForRole } from '@/lib/permissions';
-import type { TenantRole } from '@/types';
+import type { BackendRole } from '@/services/session.service';
 import { NAVIGATION_GROUPS } from '@/app/navigation';
 import type { PageId } from '@/app/types';
 
 const PAGE_ICONS: Record<PageId, PhosphorIcon> = {
   dashboard: SquaresFour,
+  products: Package,
   inventory: Warehouse,
   orders: ShoppingBag,
   fulfillment: Truck,
@@ -54,19 +54,15 @@ interface SidebarProps {
   onMobileClose: () => void;
 }
 
-const ROLE_LABELS: Record<TenantRole, string> = {
-  owner: '👑 Chủ Doanh Nghiệp',
+const ROLE_LABELS: Record<BackendRole, string> = {
   admin: 'Chủ doanh nghiệp (Admin)',
   manager: '📊 Trưởng Phòng OMS',
   warehouse: '📦 Nhân Viên Kho',
-  finance: '💰 Kế Toán Tài Chính',
-  growth: '🚀 Tăng Trưởng & Ads',
-  viewer: '👁️ Người Xem (Chỉ Đọc)',
 };
 
 export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose }: SidebarProps) {
   const { profile, signOut, activeRole } = useAuth();
-  const currentRole: TenantRole = activeRole ?? 'owner';
+  const currentRole: BackendRole = activeRole === 'admin' || activeRole === 'manager' || activeRole === 'warehouse' ? activeRole : 'warehouse';
 
   // Persistent sidebar collapse state (True: icon-only mini sidebar, False: full expanded sidebar)
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
@@ -94,8 +90,8 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
   };
 
   const allowedPages = useMemo(
-    () => new Set(getAllowedPagesForRole(isMockMode() ? currentRole : activeRole, !isMockMode())),
-    [currentRole, activeRole]
+    () => new Set(getAllowedPagesForRole(activeRole, true)),
+    [activeRole]
   );
 
   const filteredGroups = useMemo(() => {
@@ -131,9 +127,7 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
           {!isCollapsed ? (
             <div className="flex items-center justify-between gap-1.5">
               <div className="flex items-center gap-2 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#0284C7] to-[#0369A1] border border-white/10 flex items-center justify-center shadow-md shrink-0">
-                  <Warehouse size={18} weight="duotone" className="text-white" />
-                </div>
+                <img src="/branding/nexusoms-shark-transparent.png" alt="Logo cá mập NexusOMS" className="h-7 w-10 shrink-0 object-contain" />
                 <div className="min-w-0">
                   <span className="text-[15px] font-black text-white tracking-tight truncate block">NexusOMS</span>
                   <p className="text-[10.5px] text-[#38BDF8] font-semibold flex items-center gap-1 truncate">
@@ -158,10 +152,10 @@ export function Sidebar({ current, onNavigate, stats, mobileOpen, onMobileClose 
               <button
                 type="button"
                 onClick={toggleCollapse}
-                className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-xs cursor-pointer"
+                className="flex size-10 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
                 title="Mở rộng menu"
               >
-                <CaretRight size={17} weight="bold" />
+                <img src="/branding/nexusoms-shark-transparent.png" alt="Mở rộng menu NexusOMS" className="h-6 w-9 object-contain" />
               </button>
             </div>
           )}

@@ -20,9 +20,10 @@ public sealed class OrdersController(OrderService orders)
     }
     [HttpGet]
     public Task<IReadOnlyList<OrderSummary>> List(
+        [FromQuery] DateOnly? from, [FromQuery] DateOnly? to,
         CancellationToken cancellationToken)
     {
-        return orders.ListAsync(cancellationToken);
+        return orders.ListAsync(from, to, cancellationToken);
     }
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<OrderDetail>> Get(
