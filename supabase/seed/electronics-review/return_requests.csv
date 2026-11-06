@@ -1,0 +1,9 @@
+﻿return_code,order_number,sku,quantity,status,reason
+TRA-202611-0001,DT-202611-0005,ANK-Q20I-BLK,1,requested,"Tai nghe bị rè một bên, khách yêu cầu kiểm tra."
+TRA-202611-0002,DT-202611-0006,ANK-NANO65,1,requested,Thiết bị mất kết nối khi sử dụng.
+TRA-202611-0003,DT-202611-0009,SAM-A55-8-128,1,requested,"Cổng kết nối chập chờn, cần kiểm tra."
+TRA-202611-0004,DT-202611-0012,KIN-DTX-128,1,requested,Thiết bị không nhận nguồn điện.
+TRA-202611-0005,DT-202611-0014,SON-WHCH520,1,requested,Màn hình có điểm sáng bất thường.
+TRA-202611-0006,DT-202611-0016,WD-BLUE-1TB,1,requested,Sản phẩm có dấu hiệu hư hỏng khi vận chuyển.
+TRA-202611-0007,DT-202611-0017,SAM-870EVO-1TB,1,requested,Phụ kiện đi kèm không hoạt động.
+TRA-202611-0008,DT-202611-0019,TPL-ARCHER-AX23,1,requested,Âm thanh hoặc kết nối chưa ổn định.

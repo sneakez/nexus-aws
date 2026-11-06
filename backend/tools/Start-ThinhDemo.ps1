@@ -1,6 +1,6 @@
 param(
     [ValidateSet('Api','Frontend')][Parameter(Mandatory=$true)][string]$Component,
-    [ValidateSet('LocalLab','Shared')][string]$DataTarget='LocalLab'
+    [ValidateSet('LocalLab','Shared')][string]$DataTarget='Shared'
 )
 $ErrorActionPreference='Stop'
 $backendRoot=Split-Path $PSScriptRoot -Parent

@@ -1,0 +1,11 @@
+{
+  "products": 50,
+  "orders": 100,
+  "order_items": 189,
+  "customers": 40,
+  "warehouses": 3,
+  "inventory_items": 150,
+  "order_fee_breakdowns": 109,
+  "channel_sku_mappings": 200,
+  "return_requests": 8
+}
