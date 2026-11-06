@@ -230,7 +230,7 @@ function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: s
       onSaved();
     }
   }
-  return <Modal open title={title} size={connection ? 'lg' : 'md'} allowOverflow={Boolean(connection)} onClose={() => { if (!inFlight.current) onClose(); }}>
+  return <Modal open title={title} size={connection ? 'lg' : 'md'} onClose={() => { if (!inFlight.current) onClose(); }}>
     <form className="space-y-4" onSubmit={event => { void submit(event); }}>
       <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-2">
         {connection ? <>
