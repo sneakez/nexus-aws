@@ -1,10 +1,12 @@
 import { PageHeader } from '@/components/common/PageHeader';
 import { HierarchicalDataGrid } from '@/components/common/HierarchicalDataGrid';
 import { Modal } from '@/components/ui/Modal';
+import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/SearchableSelect';
 import { Pencil, Plus, RefreshCw, Store } from 'lucide-react';
 import { BackendPricingCalculator } from './BackendPricingCalculator';
 import { formatOrderMoney } from '@/lib/orderFormatting';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageId } from '@/app/types';
 import { PAGE_META } from '@/app/navigation';
 import { ApiError } from '@/services/apiClient';
@@ -12,6 +14,7 @@ import { channelsService } from '@/services/channels.service';
 import { workspaceService, type ApiRow } from '@/services/workspace.service';
 import { useAuth } from '@/providers/AuthProvider';
 import { formatDate } from '@/lib/utils';
+import { ChannelPerformanceChart } from '@/components/charts/ChannelPerformanceChart';
 
 type Row = ApiRow;
 type Column = readonly [key: string, label: string];
@@ -91,68 +94,21 @@ function ChannelCards({ rows, onEdit, onRemove }: {
   </ul>;
 }
 
-function useRows(load: ((token: string, signal?: AbortSignal) => Promise<Row[]>) | undefined, revision: number) {
+function useRows(key: readonly string[], load: ((token: string, signal?: AbortSignal) => Promise<Row[]>) | undefined) {
   const { session } = useAuth();
   const token = session?.access_token;
-  const [state, setState] = useState<{ rows: Row[]; error?: string; loading: boolean }>({ rows: [], loading: true });
-  useEffect(() => {
-    const controller = new AbortController();
-    setState({ rows: [], loading: !!load });
-    if (!load || !token) return () => controller.abort();
-    void load(token, controller.signal).then(rows => {
-      if (!controller.signal.aborted) setState({ rows, loading: false });
-    }).catch((error: unknown) => {
-      if (!controller.signal.aborted) setState({ rows: [], error: error instanceof Error ? error.message : 'Không tải được dữ liệu.', loading: false });
-    });
-    return () => controller.abort();
-  }, [load, token, revision]);
-  return state;
+  const query = useQuery({
+    queryKey: ['workspace', session?.user.id, ...key],
+    enabled: Boolean(load && token),
+    queryFn: ({ signal }) => load!(token!, signal),
+  });
+  return { rows: query.data ?? [], error: query.error instanceof Error ? query.error.message : undefined, loading: query.isLoading };
 }
 
 function Result({ state, children }: { state: ReturnType<typeof useRows>; children: ReactNode }) {
   if (state.loading) return <p role="status">Đang tải…</p>;
   if (state.error) return <p role="alert" className="text-red-700">{state.error}</p>;
   return children;
-}
-
-function CustomerForm({ onCreated }: { onCreated: () => void }) {
-  const { session } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const inFlight = useRef(false);
-  const [error, setError] = useState('');
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (inFlight.current || !session) return;
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const name = String(data.get('name') ?? '').trim();
-    if (!name) { setError('Nhập tên khách hàng.'); return; }
-    const phone = String(data.get('phone') ?? '').trim() || null;
-    const email = String(data.get('email') ?? '').trim() || null;
-    inFlight.current = true;
-    setBusy(true);
-    setError('');
-    try {
-      await workspaceService.createCustomer({ name, phone, email }, session.access_token);
-      form.reset();
-      onCreated();
-    } catch (cause) {
-      setError(cause instanceof ApiError && cause.status < 500 ? cause.message : 'Chưa xác nhận được kết quả. Kiểm tra danh sách trước khi lưu lại để tránh tạo trùng.');
-      onCreated();
-    } finally { inFlight.current = false; setBusy(false); }
-  }
-  return <details className="rounded-xl border border-ink-200 bg-white p-4">
-    <summary className="cursor-pointer font-semibold">Thêm khách hàng</summary>
-    <form onSubmit={event => { void submit(event); }} className="mt-4 space-y-3">
-      <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-3">
-        <label>Tên<input name="name" required maxLength={120} className="mt-1 block w-full rounded border p-2" /></label>
-        <label>Điện thoại<input name="phone" type="tel" className="mt-1 block w-full rounded border p-2" /></label>
-        <label>Email<input name="email" type="email" className="mt-1 block w-full rounded border p-2" /></label>
-      </fieldset>
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      <button disabled={busy} type="submit" className="btn-primary">{busy ? 'Đang lưu…' : 'Lưu khách hàng'}</button>
-    </form>
-  </details>;
 }
 
 type InventoryAction = 'receipt' | 'increase' | 'decrease';
@@ -194,17 +150,19 @@ function InventoryTable({ rows, onAdjust }: { rows: Row[]; onAdjust: (item: Row)
   return <HierarchicalDataGrid<Row> data={rows} rowKey={row => row.id} searchPlaceholder="Tìm trong danh sách" searchFilter={(row, query) => columns.some(([key]) => cell(row[key], key).toLocaleLowerCase('vi').includes(query))} groups={[{ id: 'inventory', title: 'Tồn kho', columns: [...columns.map(([key, header]) => ({ id: key, header, accessor: (row: Row) => cell(row[key], key), align: ['stock', 'reserved', 'pendingQc', 'incoming', 'available'].includes(key) ? 'right' : 'left' })), { id: 'action', header: 'Thao tác', accessor: (row: Row) => <button type="button" className="btn-secondary p-2" onClick={() => onAdjust(row)} aria-label={'Điều chỉnh tồn ' + cell(row.productName, 'productName')} title="Điều chỉnh tồn"><Pencil size={16} /></button> }] }]} />;
 }
 
-function ProductForm({ initial, onSaved, onClose }: { initial?: Row; onSaved: () => void; onClose: () => void }) {
+function ProductForm({ initial, brands, onSaved, onClose }: { initial?: Row; brands: { rows: Row[]; error?: string; loading: boolean }; onSaved: () => void; onClose: () => void }) {
   const { session } = useAuth();
-  const brands = useRows(workspaceService.listBrands, 0);
+  const [brandId, setBrandId] = useState(() => typeof initial?.brandId === 'string' ? initial.brandId : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const selectedBrandIsLoaded = brands.rows.some(row => row.id === brandId);
+  const initialBrandName = initial ? cell(initial.brandName, 'brandName') : '';
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session) return;
     const data = new FormData(event.currentTarget);
     const body = {
-      brandId: String(data.get('brandId') ?? '') || null,
+      brandId: brandId || null,
       sku: String(data.get('sku') ?? '').trim(),
       name: String(data.get('name') ?? '').trim(),
       costPrice: Number(data.get('costPrice')),
@@ -218,16 +176,20 @@ function ProductForm({ initial, onSaved, onClose }: { initial?: Row; onSaved: ()
       setError(cause instanceof Error ? cause.message : 'Chưa lưu được sản phẩm.');
     } finally { setBusy(false); }
   }
-  return <Modal open title={initial ? 'Sửa sản phẩm' : 'Thêm sản phẩm'} onClose={() => { if (!busy) onClose(); }}>
+  const brandOptions: SearchableSelectOption[] = [
+    ...(brandId && !selectedBrandIsLoaded && initialBrandName !== '—' ? [{ value: brandId, label: initialBrandName }] : []),
+    ...brands.rows.map(row => ({ value: row.id, label: cell(row.name, 'name') })),
+  ];
+  return <Modal open title={initial ? 'Sửa sản phẩm' : 'Thêm sản phẩm'} size="lg" onClose={() => { if (!busy) onClose(); }}>
     <form className="space-y-4" onSubmit={event => { void submit(event); }}>
       <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-2">
         <label>SKU nội bộ<input required name="sku" maxLength={100} defaultValue={initial ? cell(initial.sku, 'sku') : ''} className="block w-full rounded border p-2" /></label>
         <label>Tên sản phẩm<input required name="name" maxLength={200} defaultValue={initial ? cell(initial.name, 'name') : ''} className="block w-full rounded border p-2" /></label>
-        <label>Brand<select name="brandId" defaultValue={initial?.brandId as string | undefined ?? ''} className="block w-full rounded border p-2"><option value="">Chưa gán brand</option>{brands.rows.map(row => <option key={row.id} value={row.id}>{cell(row.name, 'name')}</option>)}</select></label>
+        <label>Brand<SearchableSelect value={brandId} onChange={setBrandId} options={brandOptions} placeholder="Chưa gán brand" emptyOptionLabel="Chưa gán brand" ariaLabel="Chọn brand" searchPlaceholder="Tìm brand..." /></label>
         <label>Giá vốn<input required name="costPrice" type="number" min="0" step="0.01" defaultValue={initial ? String(initial.costPrice ?? '') : ''} className="block w-full rounded border p-2" /></label>
       </fieldset>
       {(error || brands.error) && <p role="alert" className="text-red-700">{error || brands.error}</p>}
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="btn-primary" disabled={busy || brands.loading}>{busy ? 'Đang lưu…' : 'Lưu sản phẩm'}</button></div>
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Đang lưu…' : 'Lưu sản phẩm'}</button></div>
     </form>
   </Modal>;
 }
@@ -239,18 +201,20 @@ function ProductTable({ rows, canManage, onEdit, onDeactivate }: { rows: Row[]; 
 
 function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: string; initial?: Row; onSaved: () => void; onClose: () => void }) {
   const { session } = useAuth();
-  const products = useRows(connection ? workspaceService.listProducts : undefined, 0);
+  const products = useRows(['products', connection ?? ''], connection ? workspaceService.listProducts : undefined);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [error, setError] = useState('');
+  const [productId, setProductId] = useState('');
   const title = connection ? 'Thêm ánh xạ SKU' : initial ? 'Sửa tài khoản kênh' : 'Thêm tài khoản kênh';
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session || inFlight.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
+    if (connection && !productId) { setError('Chọn sản phẩm để ánh xạ.'); return; }
     const body = connection
-      ? { productId: data.get('productId'), channelSku: String(data.get('channelSku')).trim() }
+      ? { productId, channelSku: String(data.get('channelSku')).trim() }
       : { type: data.get('type'), accountName: String(data.get('accountName')).trim(), ...(initial ? { status: data.get('status') } : {}) };
     inFlight.current = true;
     setBusy(true);
@@ -266,13 +230,11 @@ function ChannelForm({ connection, initial, onSaved, onClose }: { connection?: s
       onSaved();
     }
   }
-  return <Modal open title={title} onClose={() => { if (!inFlight.current) onClose(); }}>
+  return <Modal open title={title} size={connection ? 'lg' : 'md'} allowOverflow={Boolean(connection)} onClose={() => { if (!inFlight.current) onClose(); }}>
     <form className="space-y-4" onSubmit={event => { void submit(event); }}>
       <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-2">
         {connection ? <>
-          <label>Sản phẩm<select required name="productId" className="block w-full rounded border p-2">
-            <option value="">Chọn sản phẩm</option>{products.rows.map(row => <option key={row.id} value={row.id}>{cell(row.sku, 'sku')} · {cell(row.name, 'name')}</option>)}
-          </select></label>
+          <label>Sản phẩm<SearchableSelect value={productId} onChange={setProductId} options={products.rows.map(row => ({ value: row.id, label: cell(row.sku, 'sku') + ' · ' + cell(row.name, 'name') }))} placeholder="Chọn sản phẩm" ariaLabel="Chọn sản phẩm để ánh xạ" searchPlaceholder="Tìm SKU hoặc tên sản phẩm..." /></label>
           <label>SKU trên kênh<input required maxLength={100} name="channelSku" className="block w-full rounded border p-2" /></label>
         </> : <>
           <label>Kênh<select name="type" defaultValue={initial ? cell(initial.type, 'type') : 'shopee'} className="block w-full rounded border p-2">
@@ -327,7 +289,7 @@ function RemoveChannelResource({ target, onClose, onRemoved }: {
 }
 
 const unavailable: Partial<Record<PageId, string>> = {
-  simulator: 'Chạy kịch bản webhook trên môi trường lab để tránh phát sinh đơn thử trong dữ liệu vận hành.',
+  simulator: 'Mô phỏng đơn từ sàn để kiểm tra luồng xử lý mà không tạo dữ liệu thử trong vận hành.',
 };
 
 export function BackendWorkspacePage({ page, search }: { page: PageId; search: string }) {
@@ -343,19 +305,24 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [productError, setProductError] = useState('');
   const [removeTarget, setRemoveTarget] = useState<{ label: string; remove: () => Promise<unknown> } | null>(null);
-  const [revision, setRevision] = useState(0);
+  const queryClient = useQueryClient();
   const [selection, setSelection] = useState('');
   const [transactions, setTransactions] = useState(false);
   const [adjustingInventory, setAdjustingInventory] = useState<Row | null>(null);
+  const [inventoryWarehouseId, setInventoryWarehouseId] = useState('');
   const [localSearch, setLocalSearch] = useState('');
   const mappingLoader = useCallback((token: string, signal?: AbortSignal) => channelsService.listMappings(selection, token, signal), [selection]);
-  const list = useRows(isProducts ? workspaceService.listProducts : isConnections || isMapping ? channelsService.list : view?.load, revision);
-  const productInventory = useRows(isProducts ? workspaceService.listInventory : undefined, revision);
-  const mapping = useRows(page === 'channelMapping' && selection ? mappingLoader : undefined, revision);
-  const ledger = useRows(page === 'inventory' && transactions ? workspaceService.listInventoryTransactions : undefined, revision);
+  const list = useRows(['list', page], isProducts ? workspaceService.listProducts : isConnections || isMapping ? channelsService.list : view?.load);
+  const brands = useRows(['brands'], isProducts ? workspaceService.listBrands : undefined);
+  const productInventory = useRows(['inventory'], isProducts ? workspaceService.listInventory : undefined);
+  const mapping = useRows(['mappings', selection], page === 'channelMapping' && selection ? mappingLoader : undefined);
+  const ledger = useRows(['inventory-transactions'], page === 'inventory' && transactions ? workspaceService.listInventoryTransactions : undefined);
+  const warehouses = useRows(['warehouses'], page === 'inventory' ? workspaceService.listWarehouses : undefined);
+  const refreshWorkspace = useCallback(() => queryClient.invalidateQueries({ queryKey: ['workspace', session?.user.id] }), [queryClient, session?.user.id]);
   const query = (localSearch || search).trim().toLocaleLowerCase('vi');
   const rows = list.rows.filter(row => !query || Object.values(row).some(value =>
     typeof value === 'string' && value.toLocaleLowerCase('vi').includes(query)));
+  const inventoryRows = inventoryWarehouseId ? rows.filter(row => String(row.warehouseId) === inventoryWarehouseId) : rows;
   const productRows = rows.map(row => {
     const totals = productInventory.rows.filter(item => item.productId === row.id).reduce((sum, item) => ({ stock: sum.stock + Number(item.stock ?? 0), available: sum.available + Number(item.available ?? 0) }), { stock: 0, available: 0 });
     return { ...row, ...totals };
@@ -366,13 +333,13 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
     setProductError('');
     try {
       await workspaceService.deactivateProduct(product.id, session.access_token);
-      setRevision(n => n + 1);
+      void refreshWorkspace();
     } catch (cause) { setProductError(cause instanceof Error ? cause.message : 'Chưa cập nhật được trạng thái sản phẩm.'); }
   }
   return <section className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
     <PageHeader title={PAGE_META[page].title} subtitle={PAGE_META[page].subtitle} actions={<>
-      {(view || isConnections || isMapping || isProducts) && <input aria-label={PAGE_META[page].searchPlaceholder} value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder={PAGE_META[page].searchPlaceholder} className="input w-56 text-sm" />}
-      {(view || isConnections || isMapping) && <button className="btn-secondary" type="button" onClick={() => setRevision(n => n + 1)}>
+      {(view || isConnections || isMapping || isProducts) && page !== 'customers' && <input aria-label={PAGE_META[page].searchPlaceholder} value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder={PAGE_META[page].searchPlaceholder} className="input w-56 text-sm" />}
+      {(view || isConnections || isMapping) && <button className="btn-secondary" type="button" onClick={() => { void refreshWorkspace(); }}>
         <RefreshCw size={16} aria-hidden="true" /> Tải lại
       </button>}
       {(isConnections || isMapping) && <button className="btn-primary" type="button"
@@ -383,21 +350,21 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
     </>} />
     {page === 'pricingCalculator' && <BackendPricingCalculator />}
     {page === 'skuEconomics' && <p className="text-sm text-ink-600">Tổng tiền hàng và giá vốn theo SKU của đơn chưa hủy. Phí cấp đơn không phân bổ xuống SKU.</p>}
-    {page === 'channelEconomics' && <p className="text-sm text-ink-600">Tổng CM1–CM3 theo kênh của đơn chưa hủy. Kết quả có thể bao gồm đơn đang xử lý.</p>}
+    {page === 'channelEconomics' && <p className="text-sm text-ink-600">Tổng doanh thu, chi phí và lợi nhuận theo kênh của các đơn chưa hủy. Kết quả có thể gồm đơn đang xử lý.</p>}
     {unavailable[page] && <p className="rounded-xl border border-ink-200 bg-white p-4 text-ink-700">{unavailable[page]}</p>}
-    {page === 'customers' && <CustomerForm onCreated={() => setRevision(n => n + 1)} />}
     {isProducts && <Result state={productState}><ProductTable rows={productRows} canManage={canManageProducts} onEdit={product => { setEditingProduct(product); setProductFormOpen(true); }} onDeactivate={product => { void deactivateProduct(product); }} /></Result>}
     {productError && <p role="alert" className="text-red-700">{productError}</p>}
-    {productFormOpen && <ProductForm initial={editingProduct} onClose={() => setProductFormOpen(false)} onSaved={() => setRevision(n => n + 1)} />}
+    {productFormOpen && <ProductForm initial={editingProduct} brands={brands} onClose={() => setProductFormOpen(false)} onSaved={() => { void refreshWorkspace(); }} />}
     {isConnections && <Result state={list}><ChannelCards rows={rows}
       onEdit={row => { setEditingChannel(row); setChannelFormOpen(true); }}
       onRemove={row => setRemoveTarget({ label: 'tài khoản ' + cell(row.accountName, 'accountName'), remove: () => channelsService.remove(row.id, session?.access_token ?? '') })} /></Result>}
     {channelFormOpen && <ChannelForm initial={editingChannel} connection={isMapping ? selection : undefined}
-      onClose={() => setChannelFormOpen(false)} onSaved={() => setRevision(n => n + 1)} />}
+      onClose={() => setChannelFormOpen(false)} onSaved={() => { void refreshWorkspace(); }} />}
     {removeTarget && <RemoveChannelResource target={removeTarget} onClose={() => setRemoveTarget(null)}
-      onRemoved={() => { setRemoveTarget(null); setRevision(n => n + 1); }} />}
-    {page === 'inventory' && <Result state={list}><InventoryTable rows={rows} onAdjust={setAdjustingInventory} /></Result>}
-    {adjustingInventory && <InventoryAdjustmentModal item={adjustingInventory} onClose={() => setAdjustingInventory(null)} onSaved={() => setRevision(n => n + 1)} />}
+      onRemoved={() => { setRemoveTarget(null); void refreshWorkspace(); }} />}
+    {page === 'inventory' && <Result state={list}><div className="space-y-4"><div className="card p-4"><label className="block max-w-sm font-medium">Kho<SearchableSelect value={inventoryWarehouseId} onChange={setInventoryWarehouseId} options={warehouses.rows.map(row => ({ value: String(row.id), label: cell(row.code, 'code') + ' · ' + cell(row.name, 'name') }))} placeholder={warehouses.loading ? 'Đang tải kho...' : 'Tất cả kho'} emptyOptionLabel="Tất cả kho" disabled={warehouses.loading} ariaLabel="Lọc tồn kho theo kho" searchPlaceholder="Tìm mã hoặc tên kho..." /></label></div><InventoryTable rows={inventoryRows} onAdjust={setAdjustingInventory} /></div></Result>}
+    {adjustingInventory && <InventoryAdjustmentModal item={adjustingInventory} onClose={() => setAdjustingInventory(null)} onSaved={() => { void refreshWorkspace(); }} />}
+    {page === 'channelEconomics' && <Result state={list}><ChannelPerformanceChart rows={rows} /></Result>}
     {view && page !== 'inventory' && <Result state={list}><RowsTable rows={rows} columns={view.columns} /></Result>}
     {page === 'inventory' && <section className="space-y-3">
       <button className="btn-secondary" type="button" onClick={() => setTransactions(value => !value)}>
@@ -408,10 +375,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
     {isMapping && <Result state={list}>
       <div className="card p-4">
         <label className="block max-w-sm font-medium">Tài khoản kênh
-          <select className="input mt-1 w-full" value={selection} onChange={event => setSelection(event.target.value)}>
-            <option value="">Chọn tài khoản</option>
-            {list.rows.map(row => <option key={row.id} value={row.id}>{cell(row.accountName, 'accountName')}</option>)}
-          </select>
+          <SearchableSelect value={selection} onChange={setSelection} options={list.rows.map(row => ({ value: row.id, label: cell(row.accountName, 'accountName') }))} placeholder="Chọn tài khoản" ariaLabel="Chọn tài khoản kênh" searchPlaceholder="Tìm tài khoản kênh..." />
         </label>
       </div>
       {selection ? <Result state={mapping}>

@@ -21,6 +21,22 @@ public static class CreateOrderValidator
         if (request.CustomerId == Guid.Empty)
             throw new ArgumentException("Mã khách hàng không hợp lệ.");
 
+        if (request.CustomerId.HasValue && request.NewCustomer is not null)
+            throw new ArgumentException("Chỉ chọn khách hàng có sẵn hoặc nhập khách mới.");
+
+        if (request.NewCustomer is { } newCustomer)
+        {
+            var name = newCustomer.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 120)
+                throw new ArgumentException("Tên khách hàng mới phải có từ 1 đến 120 ký tự.");
+
+            if (newCustomer.Phone?.Trim().Length > 30)
+                throw new ArgumentException("Số điện thoại tối đa 30 ký tự.");
+
+            if (newCustomer.Email?.Trim().Length > 254)
+                throw new ArgumentException("Email tối đa 254 ký tự.");
+        }
+
         ValidateMoney(request.Tax);
         ValidateMoney(request.ShippingFee);
 

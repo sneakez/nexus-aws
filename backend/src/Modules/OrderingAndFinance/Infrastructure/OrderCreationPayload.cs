@@ -10,6 +10,7 @@ internal static class OrderCreationPayload
         {
             request.OrderNumber,
             request.CustomerId,
+            request.NewCustomer,
             request.WarehouseId,
             request.Tax,
             request.ShippingFee,

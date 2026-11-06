@@ -2,6 +2,12 @@ namespace NexusOMS.OrderingAndFinance;
 
 public sealed class ReturnService(IReturnRepository repository)
 {
+    public Task<IReadOnlyList<ReturnCaseSummary>> ListAsync(
+        DateOnly? from,
+        DateOnly? to,
+        CancellationToken cancellationToken = default) =>
+        repository.ListAsync(from, to, cancellationToken);
+
     public Task<ReturnCase?> GetAsync(
         Guid id,
         CancellationToken cancellationToken = default)

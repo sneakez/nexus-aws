@@ -5,7 +5,7 @@ export interface BackendOrderSummary { id: string; orderNumber: string; status: 
 export interface BackendOrderLine { id: string; productId: string | null; productSku: string | null; productName: string; quantity: number; unitPrice: number; lineTotal: string; unitCost: number | null; }
 export interface BackendOrderDetail extends BackendOrderSummary { customerId: string | null; customerName?: string | null; subtotal: string; tax: number; shippingFee: number; items: BackendOrderLine[]; }
 export interface OrderCatalogOption { id: string; name: string; code: string; }
-export interface BackendCreateOrder { idempotencyKey: string; orderNumber: string; customerId: string | null; warehouseId: string; tax: number; shippingFee: number; items: { productId: string; quantity: number; unitPrice: number }[]; }
+export interface BackendCreateOrder { idempotencyKey: string; orderNumber: string; customerId: string | null; newCustomer?: { name: string; phone: string | null; email: string | null } | null; warehouseId: string; tax: number; shippingFee: number; items: { productId: string; quantity: number; unitPrice: number }[]; }
 export type BackendOrderOperation = 'confirm' | 'process' | 'ship' | 'cancel';
 export interface BackendOrderOperationRequest { idempotencyKey: string; reason?: string; }
 export interface BackendOrderOperationResult { orderId: string; status: string; replayed: boolean; }

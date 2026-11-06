@@ -5,6 +5,11 @@ public sealed record CreateOrderLineRequest(
     decimal Quantity,
     decimal UnitPrice);
 
+public sealed record CreateOrderCustomerRequest(
+    string? Name,
+    string? Phone,
+    string? Email);
+
 public sealed record CreateOrderRequest(
     string IdempotencyKey,
     string OrderNumber,
@@ -13,4 +18,5 @@ public sealed record CreateOrderRequest(
     decimal Tax,
     decimal ShippingFee,
     IReadOnlyList<CreateOrderLineRequest> Items,
-    Guid? ChannelConnectionId = null);
+    Guid? ChannelConnectionId = null,
+    CreateOrderCustomerRequest? NewCustomer = null);

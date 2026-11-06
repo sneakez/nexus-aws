@@ -3,12 +3,14 @@ import { BackendOrderHistory } from './BackendOrderHistory';
 import { useOrderDialogFocus } from './useOrderDialogFocus';
 import { useEffect, useRef, useState } from 'react';
 import { Drawer } from '@/components/ui/Drawer';
+import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/providers/AuthProvider';
 import { backendOrderStatuses, ordersService, type BackendOrderDetail } from '@/services/orders.service';
 import { formatDate } from '@/lib/utils';
 import { formatOrderMoney as formatCurrency } from '@/lib/orderFormatting';
+import { BackendOrderFinance } from './BackendOrderFinance';
 
-export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orderId: string; onClose: () => void; onChanged?: () => void }) {
+export function BackendOrderDetailDrawer({ orderId, onClose, onChanged, presentation = 'drawer', showFinance = false }: { orderId: string; onClose: () => void; onChanged?: () => void; presentation?: 'drawer' | 'modal'; showFinance?: boolean }) {
   const { session, activeRole } = useAuth();
   const token = session?.access_token;
   const canViewCost = activeRole === 'admin' || activeRole === 'manager';
@@ -30,9 +32,7 @@ export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orde
       });
     return () => controller.abort();
   }, [orderId, token, revision]);
-  return <Drawer open onClose={onClose} title={order?.orderNumber ?? 'Chi tiết đơn hàng'}
-    footer={<button type="button" onClick={onClose} className="btn-secondary">Đóng chi tiết</button>}>
-    <div ref={heading} tabIndex={-1} className="space-y-5 outline-none">
+  const content = <div ref={heading} tabIndex={-1} className="space-y-5 outline-none">
       {notice && <p role="status" className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">{notice}</p>}
       {error ? <div role="alert" className="text-red-700"><p>{error}</p>
         <button type="button" className="mt-2 underline" onClick={() => setRevision(n => n + 1)}>Thử lại</button></div>
@@ -58,12 +58,19 @@ export function BackendOrderDetailDrawer({ orderId, onClose, onChanged }: { orde
             {[['Tiền hàng', order.subtotal], ['Thuế', order.tax], ['Phí giao hàng', order.shippingFee], ['Tổng tiền', order.total]].map(([label, amount]) =>
               <div key={label} className="flex justify-between gap-3"><dt>{label}</dt><dd className="font-semibold tabular-nums">{formatCurrency(amount)}</dd></div>)}
           </dl>
+          {showFinance && <section className="space-y-3 border-t border-ink-200 pt-4">
+            <h3 className="font-semibold text-ink-900">Lợi nhuận đơn</h3>
+            <BackendOrderFinance orderId={order.id} />
+          </section>}
           {order.channelConnectionId && <p className="rounded-lg bg-ink-50 p-3 text-sm text-ink-700">Trạng thái đơn sàn được đồng bộ từ webhook và không thể đổi thủ công.</p>}
           <BackendOrderActions key={order.id} order={order} onUpdated={message => {
             setNotice(message); setRevision(n => n + 1); onChanged?.();
           }} />
           <BackendOrderHistory orderId={order.id} revision={revision} />
         </>}
-    </div>
-  </Drawer>;
+    </div>;
+  const footer = <button type="button" onClick={onClose} className="btn-secondary">Đóng chi tiết</button>;
+  return presentation === 'modal'
+    ? <Modal open onClose={onClose} title={order?.orderNumber ?? 'Chi tiết đơn hàng'} footer={footer} size="xl">{content}</Modal>
+    : <Drawer open onClose={onClose} title={order?.orderNumber ?? 'Chi tiết đơn hàng'} footer={footer}>{content}</Drawer>;
 }

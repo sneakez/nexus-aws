@@ -11,6 +11,7 @@ interface ModalProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
+  allowOverflow?: boolean;
 }
 
 export function Modal({
@@ -21,6 +22,7 @@ export function Modal({
   children,
   footer,
   size = 'md',
+  allowOverflow = false,
 }: ModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -48,7 +50,8 @@ export function Modal({
       />
       <div role="dialog" aria-modal="true" aria-label={title}
         className={cn(
-          'relative w-full bg-white rounded-2xl shadow-2xl shadow-ink-950/20 border border-ink-200/80 animate-scale-in max-h-[90vh] flex flex-col overflow-hidden',
+          'relative w-full bg-white rounded-2xl shadow-2xl shadow-ink-950/20 border border-ink-200/80 animate-scale-in max-h-[90vh] flex flex-col',
+          allowOverflow ? 'overflow-visible' : 'overflow-hidden',
           maxWidth
         )}
       >
@@ -66,7 +69,7 @@ export function Modal({
             <X size={20} />
           </button>
         </div>
-        <div className="p-6 overflow-y-auto flex-1">{children}</div>
+        <div className={'p-6 flex-1 ' + (allowOverflow ? 'overflow-visible' : 'overflow-y-auto')}>{children}</div>
         {footer && (
           <div className="flex items-center justify-end gap-3 p-6 shrink-0 border-t border-ink-100 bg-ink-50/50">
             {footer}
