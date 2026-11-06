@@ -2,12 +2,14 @@ import { useOrderDialogFocus } from './useOrderDialogFocus';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { useAuth } from '@/providers/AuthProvider';
 import { ApiError } from '@/services/apiClient';
 import { ordersService,
   type BackendCreateOrder, type BackendOrderDetail, type OrderCatalogOption } from '@/services/orders.service';
 
 type DraftLine = { rowId: string; productId: string; quantity: string; unitPrice: string };
+type CustomerMode = 'guest' | 'existing' | 'new';
 const inputClass = 'mt-1 w-full rounded-lg border border-ink-300 bg-white p-2 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-ink-50';
 const newLine = (): DraftLine => ({ rowId: crypto.randomUUID(), productId: '', quantity: '1', unitPrice: '' });
 function restore(key: string): BackendCreateOrder | null {
@@ -18,6 +20,7 @@ function restore(key: string): BackendCreateOrder | null {
     if (typeof value.idempotencyKey !== 'string' || typeof value.orderNumber !== 'string'
       || typeof value.warehouseId !== 'string' || (value.customerId != null && typeof value.customerId !== 'string') || !Number.isFinite(value.tax) || !Number.isFinite(value.shippingFee)
       || !Array.isArray(value.items) || value.items.length === 0
+      || (value.newCustomer != null && (typeof value.newCustomer !== 'object' || typeof value.newCustomer.name !== 'string'))
       || !value.items.every(item => item && typeof item.productId === 'string'
         && Number.isFinite(item.quantity) && Number.isFinite(item.unitPrice))) return null;
     return value;
@@ -35,6 +38,10 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
   const [orderNumber, setOrderNumber] = useState(restored?.orderNumber ?? 'WEB-' + crypto.randomUUID().slice(0, 8).toUpperCase());
   const [warehouseId, setWarehouseId] = useState(restored?.warehouseId ?? '');
   const [customerId, setCustomerId] = useState(restored?.customerId ?? '');
+  const [customerMode, setCustomerMode] = useState<CustomerMode>(() => restored?.newCustomer ? 'new' : restored?.customerId ? 'existing' : 'guest');
+  const [newCustomerName, setNewCustomerName] = useState(restored?.newCustomer?.name ?? '');
+  const [newCustomerPhone, setNewCustomerPhone] = useState(restored?.newCustomer?.phone ?? '');
+  const [newCustomerEmail, setNewCustomerEmail] = useState(restored?.newCustomer?.email ?? '');
   const [customers, setCustomers] = useState<OrderCatalogOption[]>([]);
   const [tax, setTax] = useState(String(restored?.tax ?? 0));
   const [shippingFee, setShippingFee] = useState(String(restored?.shippingFee ?? 0));
@@ -75,14 +82,19 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     if (submitting.current || !token) return;
     setError(null);
     if (!pending && !orderNumber.trim()) { setError('Vui lòng nhập mã đơn.'); formRef.current?.querySelector<HTMLInputElement>('input')?.focus(); return; }
+    if (!pending && !warehouseId) { setError('Vui lòng chọn kho giữ hàng.'); return; }
+    if (!pending && customerMode === 'existing' && !customerId) { setError('Vui lòng chọn khách hàng.'); return; }
+    if (!pending && customerMode === 'new' && !newCustomerName.trim()) { setError('Vui lòng nhập tên khách hàng.'); return; }
+    if (!pending && lines.some(line => !line.productId)) { setError('Vui lòng chọn sản phẩm cho mỗi dòng.'); return; }
     if (!pending && new Set(lines.map(line => line.productId)).size !== lines.length) {
       setError('Mỗi sản phẩm chỉ được chọn một lần. Hãy gộp số lượng vào một dòng.');
-      formRef.current?.querySelector('select')?.focus();
       return;
     }
     const payload: BackendCreateOrder = pending ?? {
       idempotencyKey: 'web-order:' + crypto.randomUUID(), orderNumber: orderNumber.trim(),
-      customerId: customerId || null, warehouseId, tax: Number(tax), shippingFee: Number(shippingFee),
+      customerId: customerMode === 'existing' ? customerId || null : null,
+      newCustomer: customerMode === 'new' ? { name: newCustomerName.trim(), phone: newCustomerPhone.trim() || null, email: newCustomerEmail.trim() || null } : null,
+      warehouseId, tax: Number(tax), shippingFee: Number(shippingFee),
       items: lines.map(line => ({ productId: line.productId, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })),
     };
     submitting.current = true;
@@ -133,26 +145,19 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
               onChange={e => setOrderNumber(e.target.value)} className={inputClass} />
           </label>
           <label className="text-sm font-medium">Kho giữ hàng
-            <select name="warehouseId" required value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className={inputClass}>
-              <option value="">Chọn kho</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
-            </select>
+            <SearchableSelect value={warehouseId} onChange={setWarehouseId} options={warehouses.map(warehouse => ({ value: warehouse.id, label: warehouse.code + ' · ' + warehouse.name }))} placeholder="Chọn kho" ariaLabel="Chọn kho giữ hàng" searchPlaceholder="Tìm mã hoặc tên kho..." />
           </label>
         </div>
-        <label className="block text-sm font-medium">Khách hàng
-          <select name="customerId" value={customerId} onChange={event => setCustomerId(event.target.value)} className={inputClass}>
-            <option value="">Khách vãng lai</option>
-            {customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
-          </select>
-        </label>
+        <fieldset className="rounded-lg border border-ink-200 p-3"><legend className="px-1 text-sm font-semibold">Khách hàng</legend>
+          <div className="flex flex-wrap gap-3 text-sm"><label className="inline-flex items-center gap-2"><input type="radio" name="customerMode" value="guest" checked={customerMode === 'guest'} onChange={() => setCustomerMode('guest')} />Khách vãng lai</label><label className="inline-flex items-center gap-2"><input type="radio" name="customerMode" value="existing" checked={customerMode === 'existing'} onChange={() => setCustomerMode('existing')} />Chọn khách có sẵn</label><label className="inline-flex items-center gap-2"><input type="radio" name="customerMode" value="new" checked={customerMode === 'new'} onChange={() => setCustomerMode('new')} />Thêm khách mới</label></div>
+          {customerMode === 'existing' && <label className="mt-3 block text-sm">Khách hàng<SearchableSelect value={customerId} onChange={setCustomerId} options={customers.map(customer => ({ value: customer.id, label: customer.name }))} placeholder="Chọn khách hàng" ariaLabel="Chọn khách hàng" searchPlaceholder="Tìm tên khách hàng..." /></label>}
+          {customerMode === 'new' && <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm sm:col-span-2">Tên khách hàng<input required maxLength={120} value={newCustomerName} onChange={event => setNewCustomerName(event.target.value)} className={inputClass} /></label><label className="text-sm">Số điện thoại<input maxLength={30} value={newCustomerPhone} onChange={event => setNewCustomerPhone(event.target.value)} className={inputClass} /></label><label className="text-sm">Email<input type="email" maxLength={254} value={newCustomerEmail} onChange={event => setNewCustomerEmail(event.target.value)} className={inputClass} /></label></div>}
+        </fieldset>
         <div className="space-y-4">
           {lines.map((line, index) => <fieldset key={line.rowId} className="rounded-lg border border-ink-200 p-3">
             <legend className="px-1 text-sm font-semibold">Sản phẩm {index + 1}</legend>
             <label className="block text-sm">Sản phẩm
-              <select required aria-label={'Sản phẩm ' + (index + 1)} value={line.productId} onChange={e => updateLine(line.rowId, 'productId', e.target.value)} className={inputClass}>
-                <option value="">Chọn sản phẩm</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}
-              </select>
+              <SearchableSelect value={line.productId} onChange={value => updateLine(line.rowId, 'productId', value)} options={products.map(product => ({ value: product.id, label: product.code + ' · ' + product.name, disabled: lines.some(other => other.rowId !== line.rowId && other.productId === product.id) }))} placeholder="Chọn sản phẩm" ariaLabel={'Chọn sản phẩm ' + (index + 1)} searchPlaceholder="Tìm SKU hoặc tên sản phẩm..." />
             </label>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <label className="text-sm">Số lượng<input required type="number" min="0.001" max="99999999999.999" step="0.001"

@@ -37,6 +37,7 @@ public sealed class PostgresOrderCreationRepository(
     NpgsqlTransaction transaction,
     Guid orderId,
     CreateOrderRequest request,
+    Guid? customerId,
     PreparedOrder prepared,
     CancellationToken cancellationToken)
     {
@@ -61,7 +62,7 @@ public sealed class PostgresOrderCreationRepository(
 
         command.Parameters.Add(
             "customerId", NpgsqlDbType.Uuid).Value =
-            (object?)request.CustomerId ?? DBNull.Value;
+            (object?)customerId ?? DBNull.Value;
         command.Parameters.Add(
             "channelConnectionId", NpgsqlDbType.Uuid).Value =
             (object?)request.ChannelConnectionId ?? DBNull.Value;
@@ -230,6 +231,27 @@ public sealed class PostgresOrderCreationRepository(
         }
     }
 
+    private static async Task<Guid> InsertCustomerAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CreateOrderCustomerRequest customer,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            insert into public.customers (name, phone, email)
+            values (@name, @phone, @email)
+            returning id
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("name", customer.Name!);
+        command.Parameters.AddWithValue("phone", NpgsqlDbType.Text, (object?)customer.Phone ?? DBNull.Value);
+        command.Parameters.AddWithValue("email", NpgsqlDbType.Text, (object?)customer.Email ?? DBNull.Value);
+
+        return (Guid)(await command.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Không thể tạo khách hàng cho đơn."));
+    }
+
     public async Task<CreateOrderResult> CreateAsync(
     CreateOrderRequest request,
     PreparedOrder prepared,
@@ -261,11 +283,16 @@ public sealed class PostgresOrderCreationRepository(
             {
                 try
                 {
-                    await ValidateReferencesAsync(connection, transaction, request, cancellationToken);
+                    var customerId = request.CustomerId;
+                    if (request.NewCustomer is not null)
+                        customerId = await InsertCustomerAsync(connection, transaction, request.NewCustomer, cancellationToken);
+
+                    var orderRequest = request with { CustomerId = customerId, NewCustomer = null };
+                    await ValidateReferencesAsync(connection, transaction, orderRequest, cancellationToken);
 
                     await InsertOrderAsync(
                         connection, transaction, orderId,
-                        request, prepared, cancellationToken);
+                        request, customerId, prepared, cancellationToken);
 
                     await InsertItemsAsync(
                         connection, transaction, orderId,

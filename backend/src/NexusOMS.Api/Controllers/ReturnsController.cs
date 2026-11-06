@@ -11,6 +11,13 @@ namespace NexusOMS.Api.Controllers;
 public sealed class ReturnsController(ReturnService returns)
     : ControllerBase
 {
+    [HttpGet]
+    public Task<IReadOnlyList<ReturnCaseSummary>> List(
+        [FromQuery] DateOnly? from,
+        [FromQuery] DateOnly? to,
+        CancellationToken cancellationToken) =>
+        returns.ListAsync(from, to, cancellationToken);
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ReturnCase>> Get(
         Guid id,

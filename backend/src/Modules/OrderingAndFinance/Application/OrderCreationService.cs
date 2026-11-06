@@ -16,7 +16,11 @@ public sealed class OrderCreationService(
         var normalized = request with
         {
             IdempotencyKey = request.IdempotencyKey?.Trim() ?? string.Empty,
-            OrderNumber = request.OrderNumber?.Trim() ?? string.Empty
+            OrderNumber = request.OrderNumber?.Trim() ?? string.Empty,
+            NewCustomer = request.NewCustomer is null ? null : new CreateOrderCustomerRequest(
+                request.NewCustomer.Name?.Trim(),
+                string.IsNullOrWhiteSpace(request.NewCustomer.Phone) ? null : request.NewCustomer.Phone.Trim(),
+                string.IsNullOrWhiteSpace(request.NewCustomer.Email) ? null : request.NewCustomer.Email.Trim())
         };
         CreateOrderValidator.Validate(normalized);
 

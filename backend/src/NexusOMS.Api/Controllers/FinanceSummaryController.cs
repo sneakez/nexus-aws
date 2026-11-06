@@ -17,4 +17,10 @@ public sealed class FinanceSummaryController(IFinanceSummaryRepository finance) 
     [HttpGet("channels")]
     public Task<IReadOnlyList<FinanceSummaryRow>> ByChannel(CancellationToken cancellationToken) =>
         finance.ListAsync(true, cancellationToken);
+
+    [HttpGet("timeline")]
+    public Task<IReadOnlyList<FinanceTimelineRow>> Timeline(
+        [FromQuery] DateOnly? from, [FromQuery] DateOnly? to,
+        CancellationToken cancellationToken) =>
+        finance.ListTimelineAsync(from, to, cancellationToken);
 }

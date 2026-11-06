@@ -5,6 +5,46 @@ namespace NexusOMS.OrderingAndFinance;
 public sealed class PostgresReturnRepository(
     NpgsqlDataSource dataSource) : IReturnRepository
 {
+    public async Task<IReadOnlyList<ReturnCaseSummary>> ListAsync(
+        DateOnly? from,
+        DateOnly? to,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            select r.id, r.status::text, r.reason, r.created_at,
+                   o.id, o.order_number, o.status::text,
+                   c.name, o.channel_connection_id, cc.account_name
+            from public.return_requests r
+            join public.orders o on o.id = r.order_id
+            left join public.customers c on c.id = o.customer_id
+            left join public.channel_connections cc on cc.id = o.channel_connection_id
+            where (@from is null or r.created_at >= @from)
+              and (@to is null or r.created_at < @to + interval '1 day')
+            order by r.created_at desc, r.id
+            limit 100
+            """;
+
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("from", (object?)from ?? DBNull.Value);
+        command.Parameters.AddWithValue("to", (object?)to ?? DBNull.Value);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var rows = new List<ReturnCaseSummary>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add(new ReturnCaseSummary(
+                reader.GetGuid(0), reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
+                reader.GetFieldValue<DateTimeOffset>(3), reader.GetGuid(4),
+                reader.GetString(5), reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetGuid(8),
+                reader.IsDBNull(9) ? null : reader.GetString(9)));
+        }
+
+        return rows;
+    }
+
     private static async Task<ReturnCase?> ReadAsync(
     NpgsqlConnection connection,
     NpgsqlTransaction? transaction,
