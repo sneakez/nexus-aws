@@ -40,13 +40,17 @@ export function SearchableSelect({
     const updatePosition = () => {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const gap = 4; const viewportPadding = 8;
+      const gap = 4; const viewportPadding = 8; const menuChromeHeight = 72;
       const below = window.innerHeight - rect.bottom - gap - viewportPadding;
       const above = rect.top - gap - viewportPadding;
       const openUpward = below < 190 && above > below;
+      const available = openUpward ? above : below;
+      const width = Math.min(rect.width, window.innerWidth - viewportPadding * 2);
+      const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+      const listHeight = Math.min(224, Math.max(0, available - menuChromeHeight));
       setMenuPosition(openUpward
-        ? { left: rect.left, width: rect.width, bottom: window.innerHeight - rect.top + gap, listHeight: Math.max(80, Math.min(224, above - 58)) }
-        : { left: rect.left, width: rect.width, top: rect.bottom + gap, listHeight: Math.max(80, Math.min(224, below - 58)) });
+        ? { left, width, bottom: window.innerHeight - rect.top + gap, listHeight }
+        : { left, width, top: rect.bottom + gap, listHeight });
     };
     updatePosition();
     window.addEventListener('resize', updatePosition);
@@ -63,7 +67,7 @@ export function SearchableSelect({
       className="flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border border-ink-300 bg-white px-3 py-2 text-left text-sm text-ink-900 outline-none transition focus:ring-2 focus:ring-teal-600 disabled:cursor-not-allowed disabled:bg-ink-50">
       <span className={selected ? 'break-words leading-5' : 'text-ink-500'}>{selected?.label ?? placeholder}</span><ChevronDown size={16} className={'shrink-0 text-ink-500 transition ' + (open ? 'rotate-180' : '')} />
     </button>
-    {open && menuPosition && createPortal(<div ref={menuRef} className="fixed z-[100] rounded-lg border border-ink-200 bg-white p-2 shadow-xl" style={menuStyle}>
+    {open && menuPosition && createPortal(<div ref={menuRef} className="fixed z-[100] max-w-[calc(100vw-1rem)] rounded-lg border border-ink-200 bg-white p-2 shadow-xl" style={menuStyle}>
       <div className="relative"><Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" /><input ref={inputRef} value={query} onChange={event => setQuery(event.target.value)} placeholder={searchPlaceholder} className="input w-full pl-9 text-sm" /></div>
       <div id={listId} role="listbox" aria-label={ariaLabel} className="mt-2 overflow-y-auto overscroll-contain" style={{ maxHeight: menuPosition.listHeight }}>
         {emptyOptionLabel && <button type="button" role="option" aria-selected={!value} onClick={() => select('')} className={'block w-full rounded px-3 py-2 text-left text-sm hover:bg-ink-50 ' + (!value ? 'bg-brand-50 text-brand-800' : '')}>{emptyOptionLabel}</button>}
