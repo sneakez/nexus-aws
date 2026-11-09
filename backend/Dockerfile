@@ -24,6 +24,13 @@ RUN dotnet publish src/NexusOMS.Api/NexusOMS.Api.csproj \
 
 # ---- Stage 2: runtime (image nhỏ, không có SDK, chạy user thường) ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+
+# Npgsql cần thư viện GSSAPI/Kerberos khi kết nối PostgreSQL trên Linux.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=build /app/publish .
 
@@ -31,6 +38,6 @@ ENV ASPNETCORE_HTTP_PORTS=8080 \
     DOTNET_EnableDiagnostics=0
 EXPOSE 8080
 
-# Image aspnet có sẵn user "app" (không phải root)
+# Chạy ứng dụng bằng user không phải root.
 USER app
 ENTRYPOINT ["dotnet", "NexusOMS.Api.dll"]
