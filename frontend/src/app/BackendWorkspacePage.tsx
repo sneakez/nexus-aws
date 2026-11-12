@@ -338,7 +338,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   }
   return <section className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
     <PageHeader title={PAGE_META[page].title} subtitle={PAGE_META[page].subtitle} actions={<>
-      {(view || isConnections || isMapping || isProducts) && page !== 'customers' && <input aria-label={PAGE_META[page].searchPlaceholder} value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder={PAGE_META[page].searchPlaceholder} className="input w-56 text-sm" />}
+      {(view || isConnections || isMapping || isProducts) && page === 'products' && <input aria-label={PAGE_META[page].searchPlaceholder} value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder={PAGE_META[page].searchPlaceholder} className="input w-56 text-sm" />}
       {(view || isConnections || isMapping) && <button className="btn-secondary" type="button" onClick={() => { void refreshWorkspace(); }}>
         <RefreshCw size={16} aria-hidden="true" /> Tải lại
       </button>}

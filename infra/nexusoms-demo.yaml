@@ -1,0 +1,1029 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  NexusOMS demonstration runtime - deploys a private ECS/Fargate API and static frontend
+  with CloudFront while retaining Supabase as the external PostgreSQL and Auth platform.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    arch: CloudFront -> S3 or ALB -> private ECS -> NAT -> Supabase; 2 AZ
+    must:
+      - Deploy regional resources in ap-southeast-1; CloudFront is global
+      - WAF is intentionally not provisioned by this demo template to avoid extra cost
+      - Put real credentials in ApplicationSecret before enabling ECS workload
+      - Use tags Project=NexusOMS and Environment=demo for cost cleanup
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: nexusoms
+    AllowedPattern: "^[a-z][a-z0-9-]{2,20}$"
+    ConstraintDescription: Use 3-21 lowercase letters, digits or hyphens; start with a letter.
+
+  Environment:
+    Type: String
+    Default: demo
+    AllowedValues: [demo, staging]
+
+  VpcCidr:
+    Type: String
+    Default: 10.80.0.0/16
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(16|20|24)$'
+
+  PublicSubnetACidr:
+    Type: String
+    Default: 10.80.0.0/24
+
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.80.1.0/24
+
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.80.10.0/24
+
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.80.11.0/24
+
+  DeployApplication:
+    Type: String
+    Default: "false"
+    AllowedValues: ["false", "true"]
+    Description: Keep false for the first deploy. Fill Secrets Manager, push an image to ECR, then update to true.
+
+  ApiImageUri:
+    Type: String
+    Default: ""
+    Description: Immutable ECR image URI, required only when DeployApplication=true.
+
+  TaskCpu:
+    Type: String
+    Default: "512"
+    AllowedValues: ["256", "512", "1024"]
+
+  TaskMemory:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "3072", "4096"]
+
+  DesiredTaskCount:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 4
+
+  CloudFrontOriginPrefixListId:
+    Type: String
+    Description: Required. Managed prefix-list ID for com.amazonaws.global.cloudfront.origin-facing in ap-southeast-1.
+    AllowedPattern: "^pl-[a-z0-9]+$"
+
+  ApiOriginProtocol:
+    Type: String
+    Default: http-only
+    AllowedValues: [http-only, https-only]
+    Description: Use https-only only after a custom API hostname and matching regional ACM certificate are configured.
+
+  ApiOriginDomainName:
+    Type: String
+    Default: ""
+    Description: Required for https-only; e.g. api.example.com pointing to the ALB.
+
+  AlbCertificateArn:
+    Type: String
+    Default: ""
+    Description: Required for https-only. ACM certificate must be in ap-southeast-1 and match ApiOriginDomainName.
+
+Conditions:
+  CreateApplication: !Equals [!Ref DeployApplication, "true"]
+  UseHttpsOrigin: !Equals [!Ref ApiOriginProtocol, https-only]
+
+Rules:
+  ValidFargateTaskSize:
+    RuleCondition: !Equals [!Ref DeployApplication, "true"]
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref TaskCpu, "256"]
+            - !Or
+              - !Equals [!Ref TaskMemory, "512"]
+              - !Equals [!Ref TaskMemory, "1024"]
+              - !Equals [!Ref TaskMemory, "2048"]
+          - !And
+            - !Equals [!Ref TaskCpu, "512"]
+            - !Or
+              - !Equals [!Ref TaskMemory, "1024"]
+              - !Equals [!Ref TaskMemory, "2048"]
+              - !Equals [!Ref TaskMemory, "3072"]
+              - !Equals [!Ref TaskMemory, "4096"]
+          - !And
+            - !Equals [!Ref TaskCpu, "1024"]
+            - !Or
+              - !Equals [!Ref TaskMemory, "2048"]
+              - !Equals [!Ref TaskMemory, "3072"]
+              - !Equals [!Ref TaskMemory, "4096"]
+        AssertDescription: Choose a valid Fargate CPU and memory combination.
+
+Resources:
+  # ------------------------- NETWORK -------------------------
+  NexusVpc:
+    Type: AWS::EC2::VPC
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: isolates demo runtime from default VPC; 2 AZ layout supports ECS availability
+        must: [Keep CIDRs non-overlapping with future peering/VPN ranges]
+        mutable: change-with-constraints
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-vpc"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-igw"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref NexusVpc
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NexusVpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PublicSubnetACidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-a"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NexusVpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Ref PublicSubnetBCidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-b"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NexusVpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnetACidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-a"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NexusVpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnetBCidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-b"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref NexusVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-rt"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+
+  PublicSubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  NatEipA:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-eip-a"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  NatEipB:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-eip-b"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: per-AZ outbound path for Supabase and external webhooks; avoids cross-AZ dependency
+        must: [Do not remove while ECS uses external Supabase/Auth endpoints]
+        mutable: review-required
+    Properties:
+      AllocationId: !GetAtt NatEipA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-a"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: per-AZ outbound path for high availability during the demonstration
+        must: [Do not remove while ECS uses external Supabase/Auth endpoints]
+        mutable: review-required
+    Properties:
+      AllocationId: !GetAtt NatEipB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-nat-b"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref NexusVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-rt-a"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref NexusVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-rt-b"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateDefaultRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+
+  PrivateDefaultRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+
+  PrivateSubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateSubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      SubnetId: !Ref PrivateSubnetB
+
+  # ------------------------- SECURITY -------------------------
+  ApplicationLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: accepts origin requests only from the AWS-managed CloudFront origin-facing prefix list
+        must: [Never replace SourcePrefixListId with 0.0.0.0/0]
+        mutable: change-with-constraints
+    Properties:
+      GroupDescription: CloudFront-only access to NexusOMS ALB
+      VpcId: !Ref NexusVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+          Description: HTTP from CloudFront origin-facing network for demo mode
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+          Description: HTTPS from CloudFront origin-facing network for custom-domain mode
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-alb-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  FargateTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: keeps API private; only ALB can invoke the application port
+        must: [Do not add public CIDR ingress]
+        mutable: change-with-constraints
+    Properties:
+      GroupDescription: ALB-only access to NexusOMS Fargate tasks
+      VpcId: !Ref NexusVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ApplicationLoadBalancerSecurityGroup
+          Description: API traffic from ALB
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-task-sg"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ------------------------- ARTIFACTS AND LOGS -------------------------
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: private origin for React/Vite static assets; CloudFront is the only viewer path
+        must:
+          [
+            Public access must remain blocked; access only through OAC bucket policy,
+          ]
+        mutable: change-with-constraints
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  AuditLogBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: encrypted private destination for CloudTrail management-event evidence
+        must: [Keep public access blocked and deny insecure transport]
+        mutable: review-required
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: holds immutable backend releases for ECS deployment and auditability
+        must:
+          [Use immutable commit tags; never deploy an unreviewed mutable tag]
+        mutable: change-with-constraints
+    Properties:
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"Keep the latest 20 tagged images","selection":{"tagStatus":"tagged","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}},{"rulePriority":2,"description":"Delete untagged images after 7 days","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":7},"action":{"type":"expire"}}]}
+      RepositoryName: !Sub "${ProjectName}-${Environment}-api"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}-${Environment}-api"
+      RetentionInDays: 14
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApplicationSecret:
+    Type: AWS::SecretsManager::Secret
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: keeps backend database and webhook configuration outside source and task definition
+        must:
+          [
+            Replace PENDING values before DeployApplication=true; never commit secret values,
+          ]
+        mutable: review-required
+    Properties:
+      Description: Fill postgresConnectionString and supabaseUrl before enabling the ECS service.
+      GenerateSecretString:
+        SecretStringTemplate: '{"postgresConnectionString":"PENDING","supabaseUrl":"PENDING","systemActorId":"PENDING"}'
+        GenerateStringKey: webhookSigningSecret
+        PasswordLength: 48
+        ExcludePunctuation: true
+      Name: !Sub "${ProjectName}/${Environment}/application"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 uses the Gateway Endpoint. ECR, Secrets Manager and CloudWatch Logs use NAT egress.
+  # ------------------------- PRIVATE S3 ACCESS -------------------------
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref NexusVpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTableA
+        - !Ref PrivateRouteTableB
+
+  # ------------------------- EDGE AND FRONTEND -------------------------
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${ProjectName}-${Environment}-frontend-oac"
+        Description: OAC for NexusOMS frontend private S3 bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  StaticAssetCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${ProjectName}-${Environment}-static"
+        # Frontend is uploaded manually for this demo; avoid stale index.html after a release.
+        DefaultTTL: 0
+        MaxTTL: 31536000
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  ApiCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${ProjectName}-${Environment}-api-no-cache"
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  SpaRoutingFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${ProjectName}-${Environment}-spa-routing"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrite frontend application routes to the SPA entry document.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+          var endsWithSlash = uri.charAt(uri.length - 1) === '/';
+
+          if (uri === '/' || endsWithSlash || lastSegment.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+
+          return request;
+        }
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: serves SPA securely and presents one origin to browser; api behavior avoids CORS complexity
+        must:
+          [
+            Keep /api/* cache TTL at zero and forward viewer Authorization header,
+          ]
+        mutable: change-with-constraints
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - Id: frontend-s3-origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: api-alb-origin
+            DomainName:
+              !If [
+                UseHttpsOrigin,
+                !Ref ApiOriginDomainName,
+                !GetAtt ApiLoadBalancer.DNSName,
+              ]
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: !If [UseHttpsOrigin, https-only, http-only]
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: frontend-s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          CachePolicyId: !Ref StaticAssetCachePolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaRoutingFunction.FunctionARN
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api-alb-origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            CachePolicyId: !Ref ApiCachePolicy
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            Compress: true
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt FrontendBucket.Arn
+              - !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # ------------------------- API RUNTIME -------------------------
+  ApiLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: public origin behind CloudFront; distributes requests to private Fargate tasks across AZs
+        must: [Keep ALB in both public subnets and task targets type ip]
+        mutable: change-with-constraints
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      SecurityGroups: [!Ref ApplicationLoadBalancerSecurityGroup]
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-alb"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref NexusVpc
+      TargetType: ip
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckEnabled: true
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApiLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions: !If
+        - UseHttpsOrigin
+        - - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              StatusCode: HTTP_301
+        - - Type: forward
+            TargetGroupArn: !Ref ApiTargetGroup
+
+  ApiHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: UseHttpsOrigin
+    Properties:
+      LoadBalancerArn: !Ref ApiLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AlbCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApiTargetGroup
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-${Environment}"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Fargate runtime pulls ECR image, retrieves task secrets and writes application logs
+        must:
+          [
+            Separate from app task role; do not grant application AWS permissions here,
+          ]
+        mutable: review-required
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadNexusOmsApplicationSecret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref ApplicationSecret
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Condition: CreateApplication
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: immutable Fargate workload definition; secrets are injected by ECS rather than baked into image
+        must:
+          [
+            Use port 8080,
+            awslogs and secret references; do not place credentials in Environment,
+          ]
+        mutable: change-with-constraints
+    Properties:
+      Family: !Sub "${ProjectName}-${Environment}-api"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: api
+          Image: !Ref ApiImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: ASPNETCORE_ENVIRONMENT
+              Value: Production
+            - Name: Frontend__Origin
+              Value: !Sub "https://${FrontendDistribution.DomainName}"
+          Secrets:
+            - Name: ConnectionStrings__Postgres
+              ValueFrom:
+                !Join [
+                  "",
+                  [!Ref ApplicationSecret, ":postgresConnectionString::"],
+                ]
+            - Name: Supabase__Url
+              ValueFrom: !Join ["", [!Ref ApplicationSecret, ":supabaseUrl::"]]
+            - Name: WebhookSimulator__Secret
+              ValueFrom:
+                !Join ["", [!Ref ApplicationSecret, ":webhookSigningSecret::"]]
+            - Name: WebhookSimulator__SystemActorId
+              ValueFrom:
+                !Join ["", [!Ref ApplicationSecret, ":systemActorId::"]]
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApplicationLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 60
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiService:
+    Type: AWS::ECS::Service
+    Condition: CreateApplication
+    DependsOn: ApiHttpListener
+    Properties:
+      ServiceName: !Sub "${ProjectName}-${Environment}-api"
+      Cluster: !Ref EcsCluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredTaskCount
+      TaskDefinition: !Ref ApiTaskDefinition
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      LoadBalancers:
+        - ContainerName: api
+          ContainerPort: 8080
+          TargetGroupArn: !Ref ApiTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: [!Ref FargateTaskSecurityGroup]
+          Subnets: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ------------------------- AUDIT -------------------------
+  AuditLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AuditLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditLogBucket.Arn
+          - Sid: AllowCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${AuditLogBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt AuditLogBucket.Arn
+              - !Sub "${AuditLogBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: AuditLogBucketPolicy
+    Properties:
+      IsLogging: true
+      IsMultiRegionTrail: false
+      IncludeGlobalServiceEvents: true
+      S3BucketName: !Ref AuditLogBucket
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  CloudFrontUrl:
+    Description: Public frontend URL using the CloudFront default certificate.
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+
+  FrontendApiBaseUrl:
+    Description: Set VITE_API_BASE_URL to this origin when building the frontend; frontend API paths already include /api/v1.
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+
+  FrontendBucketName:
+    Description: Upload React/Vite dist files to this private bucket via CI.
+    Value: !Ref FrontendBucket
+
+  ApiLoadBalancerDnsName:
+    Description: Create a DNS CNAME to this name before switching ApiOriginProtocol to https-only.
+    Value: !GetAtt ApiLoadBalancer.DNSName
+
+  ApiTargetGroupHealthCheckPath:
+    Description: Path used by the ALB target group to check ECS task health; this is not a public browser URL.
+    Value: /health
+
+  EcrRepositoryUri:
+    Description: Push backend images here, then pass the immutable image URI through ApiImageUri.
+    Value: !GetAtt EcrRepository.RepositoryUri
+
+  ApplicationSecretArn:
+    Description: Update postgresConnectionString and supabaseUrl before setting DeployApplication=true.
+    Value: !Ref ApplicationSecret
+
+  CloudFrontOriginPrefixListLookup:
+    Description: Query EC2 managed prefix lists for com.amazonaws.global.cloudfront.origin-facing in ap-southeast-1 before deployment.
+    Value: !Ref CloudFrontOriginPrefixListId
+
+  CleanupNote:
+    Description: AuditLogBucket is retained intentionally. Empty or delete it explicitly after report evidence is saved.
+    Value: "Delete the stack after demo; remove retained audit logs only after saving required evidence."
