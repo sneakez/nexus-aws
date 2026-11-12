@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { maskPII, truncateHash } from '@/lib/utils';
+import { isSessionPolicyExpired } from '@/providers/LiveAuthProvider';
 
 describe('Security Utilities & Privacy Guardrails (Workstream D)', () => {
   it('masks sensitive phone numbers with [PHONE] token', () => {
@@ -28,5 +29,19 @@ describe('Security Utilities & Privacy Guardrails (Workstream D)', () => {
     expect(maskPII(null)).toBe('');
     expect(maskPII(undefined)).toBe('');
     expect(truncateHash('')).toBe('—');
+  });
+});
+
+describe('Frontend session policy', () => {
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+
+  it('expires after 30 minutes without activity', () => {
+    expect(isSessionPolicyExpired(30 * minute, 0, 0)).toBe(true);
+    expect(isSessionPolicyExpired(29 * minute, 0, 0)).toBe(false);
+  });
+
+  it('expires after 8 hours even when recently active', () => {
+    expect(isSessionPolicyExpired(8 * hour, 0, 8 * hour - minute)).toBe(true);
   });
 });

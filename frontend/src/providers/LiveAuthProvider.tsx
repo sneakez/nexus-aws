@@ -11,6 +11,7 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   authError: string | null;
+  sessionNotice: string | null;
   memberships: TenantMembership[];
   activeTenant: Tenant | null;
   activeRole: TenantRole | null;
@@ -26,14 +27,61 @@ interface AuthContextValue {
 }
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const SESSION_STARTED_AT_KEY = 'nexusoms.auth.startedAt';
+const SESSION_LAST_ACTIVE_AT_KEY = 'nexusoms.auth.lastActiveAt';
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const ACTIVITY_WRITE_INTERVAL_MS = 15 * 1000;
+const SESSION_CHECK_INTERVAL_MS = 30 * 1000;
+
+export function isSessionPolicyExpired(now: number, startedAt: number, lastActiveAt: number) {
+  return now - startedAt >= SESSION_MAX_AGE_MS
+    || now - lastActiveAt >= SESSION_IDLE_TIMEOUT_MS;
+}
+
+function clearSessionClock() {
+  localStorage.removeItem(SESSION_STARTED_AT_KEY);
+  localStorage.removeItem(SESSION_LAST_ACTIVE_AT_KEY);
+}
+
+function getOrCreateSessionClock(now: number) {
+  const storedStartedAt = Number(localStorage.getItem(SESSION_STARTED_AT_KEY));
+  const storedLastActiveAt = Number(localStorage.getItem(SESSION_LAST_ACTIVE_AT_KEY));
+  const startedAt = Number.isFinite(storedStartedAt) && storedStartedAt > 0 && storedStartedAt <= now
+    ? storedStartedAt : now;
+  const lastActiveAt = Number.isFinite(storedLastActiveAt)
+    && storedLastActiveAt >= startedAt && storedLastActiveAt <= now
+    ? storedLastActiveAt : now;
+  localStorage.setItem(SESSION_STARTED_AT_KEY, String(startedAt));
+  localStorage.setItem(SESSION_LAST_ACTIVE_AT_KEY, String(lastActiveAt));
+  return { startedAt, lastActiveAt };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const verifiedSession = useRef<Session | null>(null);
   const revision = useRef(0);
   const request = useRef<AbortController | null>(null);
+  const expiring = useRef(false);
+
+  const expireSession = useCallback(async () => {
+    if (expiring.current) return;
+    expiring.current = true;
+    revision.current++;
+    request.current?.abort();
+    verifiedSession.current = null;
+    clearSessionClock();
+    setSession(null);
+    setProfile(null);
+    setLoading(false);
+    setAuthError(null);
+    setSessionNotice('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    await supabase.auth.signOut({ scope: 'local' });
+  }, []);
 
   const applySession = useCallback(async (next: Session | null) => {
     const current = ++revision.current;
@@ -50,6 +98,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
     try {
       if (!next) return;
+      const now = Date.now();
+      const clock = getOrCreateSessionClock(now);
+      if (isSessionPolicyExpired(now, clock.startedAt, clock.lastActiveAt)) {
+        await expireSession();
+        return;
+      }
       const verified = await sessionService.me(next.access_token, controller.signal);
       if (verified.userId !== next.user.id) throw new Error('Tài khoản không khớp phiên đăng nhập.');
       if (controller.signal.aborted || current !== revision.current) return;
@@ -76,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       if (!controller.signal.aborted && current === revision.current) setLoading(false);
     }
-  }, []);
+  }, [expireSession]);
 
   useEffect(() => {
     let disposed = false;
@@ -120,6 +174,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [applySession]);
 
+  useEffect(() => {
+    if (!session) return;
+    let lastPersistedAt = Number(localStorage.getItem(SESSION_LAST_ACTIVE_AT_KEY)) || Date.now();
+
+    const checkExpiry = () => {
+      const now = Date.now();
+      const clock = getOrCreateSessionClock(now);
+      if (isSessionPolicyExpired(now, clock.startedAt, clock.lastActiveAt)) void expireSession();
+    };
+    const recordActivity = () => {
+      const now = Date.now();
+      const clock = getOrCreateSessionClock(now);
+      if (isSessionPolicyExpired(now, clock.startedAt, clock.lastActiveAt)) {
+        void expireSession();
+        return;
+      }
+      if (now - lastPersistedAt < ACTIVITY_WRITE_INTERVAL_MS) return;
+      lastPersistedAt = now;
+      localStorage.setItem(SESSION_LAST_ACTIVE_AT_KEY, String(now));
+    };
+    const checkWhenVisible = () => {
+      if (document.visibilityState === 'visible') checkExpiry();
+    };
+    const activityEvents: Array<keyof WindowEventMap> = ['click', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach(event => window.addEventListener(event, recordActivity, { passive: true }));
+    document.addEventListener('visibilitychange', checkWhenVisible);
+    const timer = window.setInterval(checkExpiry, SESSION_CHECK_INTERVAL_MS);
+    checkExpiry();
+    return () => {
+      activityEvents.forEach(event => window.removeEventListener(event, recordActivity));
+      document.removeEventListener('visibilitychange', checkWhenVisible);
+      window.clearInterval(timer);
+    };
+  }, [expireSession, session]);
+
   async function reloadUser() {
     const { data, error } = await supabase.auth.getSession();
     if (error) {
@@ -130,10 +219,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await applySession(data.session);
   }
   async function signIn(email: string, password: string) {
+    expiring.current = false;
+    clearSessionClock();
+    setSessionNotice(null);
+    setAuthError(null);
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (!error) getOrCreateSessionClock(Date.now());
     return { error: error?.message ?? null };
   }
   async function signOut() {
+    expiring.current = false;
+    clearSessionClock();
+    setSessionNotice(null);
     await applySession(null);
     const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) setAuthError('Không xóa được phiên đăng nhập. Vui lòng thử lại.');
@@ -149,7 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   }
   return <AuthContext.Provider value={{
-    session, user: session?.user ?? null, profile, loading, authError,
+    session, user: session?.user ?? null, profile, loading, authError, sessionNotice,
     memberships: [], activeTenant: null, activeRole: profile?.role ?? null,
     signIn, signOut, resetPasswordForEmail, updatePassword, reloadUser,
     signUp: async () => ({ error: 'Liên hệ quản trị viên để cấp tài khoản.', user: null }),
