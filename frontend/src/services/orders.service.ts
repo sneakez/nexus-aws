@@ -5,6 +5,7 @@ export interface BackendOrderSummary { id: string; orderNumber: string; status: 
 export interface BackendOrderLine { id: string; productId: string | null; productSku: string | null; productName: string; quantity: number; unitPrice: number; lineTotal: string; unitCost: number | null; }
 export interface BackendOrderDetail extends BackendOrderSummary { customerId: string | null; customerName?: string | null; subtotal: string; tax: number; shippingFee: number; items: BackendOrderLine[]; }
 export interface OrderCatalogOption { id: string; name: string; code: string; }
+export interface OrderInventoryOption extends OrderCatalogOption { available: number; }
 export interface BackendCreateOrder { idempotencyKey: string; orderNumber: string; customerId: string | null; newCustomer?: { name: string; phone: string | null; email: string | null } | null; warehouseId: string; tax: number; shippingFee: number; items: { productId: string; quantity: number; unitPrice: number }[]; }
 export type BackendOrderOperation = 'confirm' | 'process' | 'ship' | 'cancel';
 export interface BackendOrderOperationRequest { idempotencyKey: string; reason?: string; }
@@ -36,6 +37,18 @@ function catalogOptions(data: unknown, codeField: string): OrderCatalogOption[] 
   if (!Array.isArray(data)) throw new Error('Danh mục không hợp lệ.');
   return data.map(value => { const item = record(value); return { id: text(item.id), name: text(item.name), code: text(item[codeField]) }; });
 }
+function inventoryOptions(data: unknown): OrderInventoryOption[] {
+  if (!Array.isArray(data)) throw new Error('Dữ liệu tồn kho không hợp lệ.');
+  return data.map(value => {
+    const item = record(value);
+    return {
+      id: text(item.productId),
+      name: text(item.productName),
+      code: text(item.productSku),
+      available: money(item.available),
+    };
+  });
+}
 
 export const ordersService = {
   async list(token: string, signal?: AbortSignal, dateRange?: { from: string; to: string }): Promise<BackendOrderSummary[]> {
@@ -47,11 +60,13 @@ export const ordersService = {
   get: async (id: string, token: string, signal?: AbortSignal) => detail(await apiClient.get<unknown>('/api/v1/orders/' + encodeURIComponent(id), token, signal, exactOrderFields)),
   create: async (payload: BackendCreateOrder, token: string) => detail(await apiClient.post<unknown>('/api/v1/orders', token, payload, exactOrderFields)),
   async catalog(token: string, signal: AbortSignal) {
-    const [products, warehouses, customers] = await Promise.all([
-      apiClient.get<unknown>('/api/v1/products?status=active', token, signal), apiClient.get<unknown>('/api/v1/warehouses?status=active', token, signal), apiClient.get<unknown>('/api/v1/customers', token, signal),
+    const [warehouses, customers] = await Promise.all([
+      apiClient.get<unknown>('/api/v1/warehouses?status=active', token, signal), apiClient.get<unknown>('/api/v1/customers', token, signal),
     ]);
-    return { products: catalogOptions(products, 'sku'), warehouses: catalogOptions(warehouses, 'code'), customers: catalogOptions(customers, 'name') };
+    return { warehouses: catalogOptions(warehouses, 'code'), customers: catalogOptions(customers, 'name') };
   },
+  inventory: async (warehouseId: string, token: string, signal: AbortSignal) => inventoryOptions(await apiClient.get<unknown>(
+    '/api/v1/inventory?warehouseId=' + encodeURIComponent(warehouseId), token, signal)),
   async advance(id: string, operation: BackendOrderOperation, payload: BackendOrderOperationRequest, token: string): Promise<BackendOrderOperationResult> {
     const result = record(await apiClient.post<unknown>('/api/v1/orders/' + encodeURIComponent(id) + '/' + operation, token, payload));
     if (result.orderId !== id || typeof result.replayed !== 'boolean') throw new Error('Chưa xác nhận được kết quả thao tác.');

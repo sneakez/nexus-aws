@@ -6,7 +6,7 @@ import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { useAuth } from '@/providers/AuthProvider';
 import { ApiError } from '@/services/apiClient';
 import { ordersService,
-  type BackendCreateOrder, type BackendOrderDetail, type OrderCatalogOption } from '@/services/orders.service';
+  type BackendCreateOrder, type BackendOrderDetail, type OrderCatalogOption, type OrderInventoryOption } from '@/services/orders.service';
 
 type DraftLine = { rowId: string; productId: string; quantity: string; unitPrice: string };
 type CustomerMode = 'guest' | 'existing' | 'new';
@@ -48,10 +48,12 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
   const [lines, setLines] = useState<DraftLine[]>(() => restored
     ? restored.items.map(item => ({ rowId: crypto.randomUUID(), productId: item.productId,
       quantity: String(item.quantity), unitPrice: String(item.unitPrice) })) : [newLine()]);
-  const [products, setProducts] = useState<OrderCatalogOption[]>([]);
+  const [products, setProducts] = useState<OrderInventoryOption[]>([]);
   const [warehouses, setWarehouses] = useState<OrderCatalogOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,13 +66,27 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     setCatalogError(null);
     if (!token) { setCatalogLoading(false); setCatalogError('Vui lòng đăng nhập lại.'); return () => controller.abort(); }
     void ordersService.catalog(token, controller.signal)
-      .then(data => { if (!controller.signal.aborted) { setProducts(data.products); setWarehouses(data.warehouses); setCustomers(data.customers); } })
+      .then(data => { if (!controller.signal.aborted) { setWarehouses(data.warehouses); setCustomers(data.customers); } })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setCatalogError(cause instanceof Error ? cause.message : 'Không tải được danh mục.');
       })
       .finally(() => { if (!controller.signal.aborted) setCatalogLoading(false); });
     return () => controller.abort();
   }, [token, revision]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setProducts([]);
+    setInventoryError(null);
+    if (!token || !warehouseId) { setInventoryLoading(false); return () => controller.abort(); }
+    setInventoryLoading(true);
+    void ordersService.inventory(warehouseId, token, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setProducts(data); })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) setInventoryError(cause instanceof Error ? cause.message : 'Không tải được tồn kho.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setInventoryLoading(false); });
+    return () => controller.abort();
+  }, [token, warehouseId, revision]);
   useOrderDialogFocus(formRef);
 
   function updateLine(rowId: string, field: 'productId' | 'quantity' | 'unitPrice', value: string) {
@@ -89,6 +105,18 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     if (!pending && new Set(lines.map(line => line.productId)).size !== lines.length) {
       setError('Mỗi sản phẩm chỉ được chọn một lần. Hãy gộp số lượng vào một dòng.');
       return;
+    }
+    if (!pending) {
+      for (const line of lines) {
+        const product = products.find(item => item.id === line.productId);
+        const quantity = Number(line.quantity);
+        if (!product) { setError('Sản phẩm đã chọn không có tồn tại kho này. Vui lòng chọn lại.'); return; }
+        if (!Number.isFinite(quantity) || quantity <= 0) { setError(`Số lượng của ${product.name} phải lớn hơn 0.`); return; }
+        if (quantity > product.available) {
+          setError(`${product.code} · ${product.name} chỉ còn ${product.available.toLocaleString('vi-VN')} sản phẩm khả dụng tại kho đã chọn.`);
+          return;
+        }
+      }
     }
     const payload: BackendCreateOrder = pending ?? {
       idempotencyKey: 'web-order:' + crypto.randomUUID(), orderNumber: orderNumber.trim(),
@@ -124,20 +152,20 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
     }
   }
   const disabled = busy || pending !== null;
-  const missingCatalog = !products.length || !warehouses.length;
+  const missingCatalog = !warehouses.length;
 
   return <Modal open onClose={close} title="Tạo đơn hàng" subtitle="Đơn được tạo ở trạng thái chờ xác nhận và giữ hàng tại kho đã chọn." size="lg"
     footer={<>
       <button type="button" disabled={busy} onClick={close} className="btn-secondary">{pending ? 'Đóng, giữ yêu cầu để kiểm tra sau' : 'Hủy'}</button>
-      <button type="submit" form="backend-create-order" disabled={busy || !token || (!pending && (catalogLoading || !!catalogError || missingCatalog))}
+      <button type="submit" form="backend-create-order" disabled={busy || !token || (!pending && (catalogLoading || inventoryLoading || !!catalogError || !!inventoryError || missingCatalog))}
         className="btn-primary disabled:opacity-50">{busy ? 'Đang gửi…' : pending ? 'Kiểm tra lại yêu cầu' : 'Tạo đơn và giữ hàng'}</button>
     </>}>
     <form id="backend-create-order" ref={formRef} onSubmit={event => { void submit(event); }} className="space-y-5">
       {pending && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Có yêu cầu đang chờ xác nhận kết quả. Thông tin được giữ nguyên để tránh tạo trùng đơn.</p>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-      {catalogLoading ? <p role="status">Đang tải kho và sản phẩm…</p> : catalogError
+      {catalogLoading ? <p role="status">Đang tải kho và khách hàng…</p> : catalogError
         ? <div role="alert" className="text-sm text-red-700">{catalogError} <button type="button" className="underline" onClick={() => setRevision(n => n + 1)}>Tải lại danh mục</button></div>
-        : missingCatalog && <p className="text-sm text-amber-900">Cần có ít nhất một kho và một sản phẩm đang hoạt động trước khi tạo đơn.</p>}
+        : missingCatalog && <p className="text-sm text-amber-900">Cần có ít nhất một kho đang hoạt động trước khi tạo đơn.</p>}
       <fieldset disabled={disabled || catalogLoading || !!catalogError} className="space-y-5 disabled:opacity-70">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium">Mã đơn
@@ -145,7 +173,7 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
               onChange={e => setOrderNumber(e.target.value)} className={inputClass} />
           </label>
           <label className="text-sm font-medium">Kho giữ hàng
-            <SearchableSelect value={warehouseId} onChange={setWarehouseId} options={warehouses.map(warehouse => ({ value: warehouse.id, label: warehouse.code + ' · ' + warehouse.name }))} placeholder="Chọn kho" ariaLabel="Chọn kho giữ hàng" searchPlaceholder="Tìm mã hoặc tên kho..." />
+            <SearchableSelect value={warehouseId} onChange={value => { setWarehouseId(value); setLines([newLine()]); setError(null); }} options={warehouses.map(warehouse => ({ value: warehouse.id, label: warehouse.code + ' · ' + warehouse.name }))} placeholder="Chọn kho" ariaLabel="Chọn kho giữ hàng" searchPlaceholder="Tìm mã hoặc tên kho..." />
           </label>
         </div>
         <fieldset className="rounded-lg border border-ink-200 p-3"><legend className="px-1 text-sm font-semibold">Khách hàng</legend>
@@ -154,13 +182,18 @@ export function BackendOrderCreateModal({ onClose, onCreated }: {
           {customerMode === 'new' && <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm sm:col-span-2">Tên khách hàng<input required maxLength={120} value={newCustomerName} onChange={event => setNewCustomerName(event.target.value)} className={inputClass} /></label><label className="text-sm">Số điện thoại<input maxLength={30} value={newCustomerPhone} onChange={event => setNewCustomerPhone(event.target.value)} className={inputClass} /></label><label className="text-sm">Email<input type="email" maxLength={254} value={newCustomerEmail} onChange={event => setNewCustomerEmail(event.target.value)} className={inputClass} /></label></div>}
         </fieldset>
         <div className="space-y-4">
+          {!warehouseId && <p className="rounded-lg bg-ink-50 p-3 text-sm text-ink-600">Chọn kho trước để xem các sản phẩm có thể bán.</p>}
+          {warehouseId && inventoryLoading && <p role="status" className="text-sm text-ink-600">Đang tải tồn kho…</p>}
+          {warehouseId && inventoryError && <p role="alert" className="text-sm text-red-700">{inventoryError} <button type="button" className="underline" onClick={() => setRevision(n => n + 1)}>Tải lại tồn kho</button></p>}
+          {warehouseId && !inventoryLoading && !inventoryError && !products.some(product => product.available > 0) && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Kho này chưa có sản phẩm khả dụng để tạo đơn.</p>}
           {lines.map((line, index) => <fieldset key={line.rowId} className="rounded-lg border border-ink-200 p-3">
             <legend className="px-1 text-sm font-semibold">Sản phẩm {index + 1}</legend>
             <label className="block text-sm">Sản phẩm
-              <SearchableSelect value={line.productId} onChange={value => updateLine(line.rowId, 'productId', value)} options={products.map(product => ({ value: product.id, label: product.code + ' · ' + product.name, disabled: lines.some(other => other.rowId !== line.rowId && other.productId === product.id) }))} placeholder="Chọn sản phẩm" ariaLabel={'Chọn sản phẩm ' + (index + 1)} searchPlaceholder="Tìm SKU hoặc tên sản phẩm..." />
+              <SearchableSelect value={line.productId} onChange={value => updateLine(line.rowId, 'productId', value)} disabled={!warehouseId || inventoryLoading || !!inventoryError} options={products.filter(product => product.available > 0).map(product => ({ value: product.id, label: product.code + ' · ' + product.name + ' · Khả dụng: ' + product.available.toLocaleString('vi-VN'), disabled: lines.some(other => other.rowId !== line.rowId && other.productId === product.id) }))} placeholder={warehouseId ? 'Chọn sản phẩm' : 'Chọn kho trước'} ariaLabel={'Chọn sản phẩm ' + (index + 1)} searchPlaceholder="Tìm SKU hoặc tên sản phẩm..." />
             </label>
+            {line.productId && <p className="mt-2 text-xs text-ink-600">Khả dụng tại kho: <strong>{products.find(product => product.id === line.productId)?.available.toLocaleString('vi-VN') ?? '—'}</strong></p>}
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <label className="text-sm">Số lượng<input required type="number" min="0.001" max="99999999999.999" step="0.001"
+              <label className="text-sm">Số lượng<input required type="number" min="0.001" max={products.find(product => product.id === line.productId)?.available ?? 99999999999.999} step="0.001"
                 aria-label={'Số lượng ' + (index + 1)} value={line.quantity} onChange={e => updateLine(line.rowId, 'quantity', e.target.value)} className={inputClass} /></label>
               <label className="text-sm">Đơn giá<input required type="number" min="0" max="999999999999.99" step="0.01"
                 aria-label={'Đơn giá ' + (index + 1)} value={line.unitPrice} onChange={e => updateLine(line.rowId, 'unitPrice', e.target.value)} className={inputClass} /></label>
