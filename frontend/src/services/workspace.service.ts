@@ -11,7 +11,7 @@ export const workspaceService = {
   listCustomers: (token: string, signal?: AbortSignal) => rows('/api/v1/customers', token, signal),
   createCustomer: (body: object, token: string) => apiClient.post('/api/v1/customers', token, body),
   listProducts: (token: string, signal?: AbortSignal) => rows('/api/v1/products?status=active', token, signal),
-  createProduct: (body: object, token: string) => apiClient.post('/api/v1/products', token, body),
+  createProduct: (body: object, token: string) => apiClient.post<ApiRow>('/api/v1/products', token, body),
   updateProduct: (id: string, body: object, token: string) => apiClient.put('/api/v1/products/' + encodeURIComponent(id), token, body),
   deactivateProduct: (id: string, token: string) => apiClient.delete('/api/v1/products/' + encodeURIComponent(id), token),
   listBrands: (token: string, signal?: AbortSignal) => rows('/api/v1/brands', token, signal),
