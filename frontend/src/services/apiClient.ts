@@ -9,17 +9,18 @@ type RequestOptions = {
   body?: object;
   method?: 'POST' | 'PUT' | 'DELETE';
   exactMoneyFields?: ReadonlySet<string>;
+  timeoutMs?: number;
 };
 
 async function request<T>(path: string, token: string, options: RequestOptions = {}): Promise<T> {
   const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!baseUrl) throw new Error('Chưa cấu hình VITE_API_BASE_URL.');
-  const { signal, body, method, exactMoneyFields } = options;
+  const { signal, body, method, exactMoneyFields, timeoutMs = 20000 } = options;
   const response = await fetch(baseUrl.replace(/\/+$/, '') + path, {
     method: method ?? (body ? 'POST' : 'GET'),
     headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     cache: 'no-store',
   });
   const data: unknown = await (exactMoneyFields && response.ok
@@ -45,7 +46,7 @@ async function request<T>(path: string, token: string, options: RequestOptions =
 
 export const apiClient = {
   get: <T>(path: string, token: string, signal?: AbortSignal, exactMoneyFields?: ReadonlySet<string>) => request<T>(path, token, { signal, exactMoneyFields }),
-  post: <T>(path: string, token: string, body: object, exactMoneyFields?: ReadonlySet<string>) => request<T>(path, token, { body, exactMoneyFields }),
+  post: <T>(path: string, token: string, body: object, exactMoneyFields?: ReadonlySet<string>, timeoutMs?: number) => request<T>(path, token, { body, exactMoneyFields, timeoutMs }),
   put: <T>(path: string, token: string, body: object) => request<T>(path, token, { body, method: 'PUT' }),
-  delete: (path: string, token: string) => request<null>(path, token, { method: 'DELETE' }),
+  delete: <T = null>(path: string, token: string, timeoutMs?: number) => request<T>(path, token, { method: 'DELETE', timeoutMs }),
 };

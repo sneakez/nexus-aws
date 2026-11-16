@@ -21,6 +21,9 @@ public static class CreateOrderValidator
         if (request.CustomerId == Guid.Empty)
             throw new ArgumentException("Mã khách hàng không hợp lệ.");
 
+        if (request.DemoBatchId == Guid.Empty)
+            throw new ArgumentException("Mã batch demo không hợp lệ.");
+
         if (request.CustomerId.HasValue && request.NewCustomer is not null)
             throw new ArgumentException("Chỉ chọn khách hàng có sẵn hoặc nhập khách mới.");
 

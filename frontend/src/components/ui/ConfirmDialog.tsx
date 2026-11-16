@@ -17,13 +17,13 @@ export function ConfirmDialog({
   onConfirm,
   title,
   message,
-  confirmLabel = 'Confirm',
+  confirmLabel = 'Xác nhận',
   danger = true,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 !m-0" style={{ margin: 0 }}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 !m-0" style={{ margin: 0 }} role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
       <div
         className="absolute inset-0 bg-ink-950/50 backdrop-blur-sm animate-backdrop"
         onClick={onClose}
@@ -42,13 +42,13 @@ export function ConfirmDialog({
             />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-ink-900">{title}</h2>
+            <h2 id="confirm-dialog-title" className="text-lg font-semibold text-ink-900">{title}</h2>
             <p className="text-sm text-ink-500 mt-1.5 leading-relaxed">{message}</p>
           </div>
         </div>
         <div className="flex items-center justify-end gap-3 mt-6">
           <button onClick={onClose} className="btn-secondary">
-            Cancel
+            Hủy
           </button>
           <button
             onClick={() => {

@@ -1,3 +1,5 @@
+using Amazon;
+using Amazon.SQS;
 using NexusOMS.Api.Authorization;
 using NexusOMS.Api.Integration;
 using NexusOMS.InventoryAndChannels;
@@ -13,7 +15,23 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddScoped<NexusOMS.Api.Infrastructure.OrderWorkflowExceptionFilter>();
 builder.Services.AddScoped<WebhookSimulatorService>();
-builder.Services.AddHostedService<WebhookRetryWorker>();
+builder.Services.AddScoped<WebhookDispatchService>();
+builder.Services.AddScoped<WebhookDemoService>();
+var webhookQueueMode = WebhookQueueSettings.GetMode(builder.Configuration);
+if (webhookQueueMode == WebhookQueueMode.Sqs)
+{
+    var region = builder.Configuration["AWS:Region"]
+        ?? Environment.GetEnvironmentVariable("AWS_REGION")
+        ?? Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION")
+        ?? "ap-southeast-1";
+    builder.Services.AddSingleton<IAmazonSQS>(_ =>
+        new AmazonSQSClient(RegionEndpoint.GetBySystemName(region)));
+    builder.Services.AddHostedService<WebhookQueueWorker>();
+}
+else
+{
+    builder.Services.AddHostedService<WebhookRetryWorker>();
+}
 builder.Services.AddNexusAuthorization(builder.Configuration);
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres must be configured.");

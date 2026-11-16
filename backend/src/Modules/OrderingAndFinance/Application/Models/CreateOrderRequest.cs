@@ -19,4 +19,5 @@ public sealed record CreateOrderRequest(
     decimal ShippingFee,
     IReadOnlyList<CreateOrderLineRequest> Items,
     Guid? ChannelConnectionId = null,
-    CreateOrderCustomerRequest? NewCustomer = null);
+    CreateOrderCustomerRequest? NewCustomer = null,
+    Guid? DemoBatchId = null);

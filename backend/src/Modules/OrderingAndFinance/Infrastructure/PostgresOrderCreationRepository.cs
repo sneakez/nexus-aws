@@ -46,12 +46,12 @@ public sealed class PostgresOrderCreationRepository(
             id, customer_id, channel_connection_id, assigned_warehouse_id,
             order_number, status,
             subtotal, tax, shipping_fee, total,
-            idempotency_key, creation_request)
+            idempotency_key, creation_request, is_demo, demo_batch_id)
         values (
             @id, @customerId, @channelConnectionId, @warehouseId,
             @orderNumber, 'pending',
             @subtotal, @tax, @shippingFee, @total,
-            @key, @payload)
+            @key, @payload, @isDemo, @demoBatchId)
         returning subtotal, total
         """;
 
@@ -76,6 +76,10 @@ public sealed class PostgresOrderCreationRepository(
         command.Parameters.AddWithValue("shippingFee", prepared.ShippingFee);
         command.Parameters.AddWithValue("total", prepared.Total);
         command.Parameters.AddWithValue("key", request.IdempotencyKey);
+        command.Parameters.AddWithValue("isDemo", request.DemoBatchId.HasValue);
+        command.Parameters.Add(
+            "demoBatchId", NpgsqlDbType.Uuid).Value =
+            (object?)request.DemoBatchId ?? DBNull.Value;
 
         command.Parameters.Add(
             "payload", NpgsqlDbType.Jsonb).Value =

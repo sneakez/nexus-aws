@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/common/PageHeader';
 import { HierarchicalDataGrid } from '@/components/common/HierarchicalDataGrid';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/SearchableSelect';
 import { Pencil, Plus, RefreshCw, Store } from 'lucide-react';
 import { BackendPricingCalculator } from './BackendPricingCalculator';
@@ -150,9 +151,12 @@ function InventoryTable({ rows, onAdjust }: { rows: Row[]; onAdjust: (item: Row)
   return <HierarchicalDataGrid<Row> data={rows} rowKey={row => row.id} searchPlaceholder="Tìm trong danh sách" searchFilter={(row, query) => columns.some(([key]) => cell(row[key], key).toLocaleLowerCase('vi').includes(query))} groups={[{ id: 'inventory', title: 'Tồn kho', columns: [...columns.map(([key, header]) => ({ id: key, header, accessor: (row: Row) => cell(row[key], key), align: ['stock', 'reserved', 'pendingQc', 'incoming', 'available'].includes(key) ? 'right' : 'left' })), { id: 'action', header: 'Thao tác', accessor: (row: Row) => <button type="button" className="btn-secondary p-2" onClick={() => onAdjust(row)} aria-label={'Điều chỉnh tồn ' + cell(row.productName, 'productName')} title="Điều chỉnh tồn"><Pencil size={16} /></button> }] }]} />;
 }
 
-function ProductForm({ initial, brands, onSaved, onClose }: { initial?: Row; brands: { rows: Row[]; error?: string; loading: boolean }; onSaved: () => void; onClose: () => void }) {
+function ProductForm({ initial, brands, warehouses, onSaved, onClose }: { initial?: Row; brands: { rows: Row[]; error?: string; loading: boolean }; warehouses: { rows: Row[]; error?: string; loading: boolean }; onSaved: () => void; onClose: () => void }) {
   const { session } = useAuth();
   const [brandId, setBrandId] = useState(() => typeof initial?.brandId === 'string' ? initial.brandId : '');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [createdProductId, setCreatedProductId] = useState('');
+  const initialStockKey = useRef('product-initial-stock-' + crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const selectedBrandIsLoaded = brands.rows.some(row => row.id === brandId);
@@ -168,18 +172,40 @@ function ProductForm({ initial, brands, onSaved, onClose }: { initial?: Row; bra
       costPrice: Number(data.get('costPrice')),
       ...(initial ? { isActive: true } : {}),
     };
+    const initialQuantity = Number(data.get('initialQuantity'));
+    if (!initial && !warehouseId) { setError('Chọn kho để nhập tồn ban đầu.'); return; }
+    if (!initial && (!Number.isFinite(initialQuantity) || initialQuantity <= 0)) { setError('Số lượng nhập ban đầu phải lớn hơn 0.'); return; }
     setBusy(true); setError('');
+    let productWasCreated = Boolean(createdProductId);
     try {
-      await (initial ? workspaceService.updateProduct(initial.id, body, session.access_token) : workspaceService.createProduct(body, session.access_token));
+      if (initial) {
+        await workspaceService.updateProduct(initial.id, body, session.access_token);
+      } else {
+        let productId = createdProductId;
+        if (!productId) {
+          const product = await workspaceService.createProduct(body, session.access_token);
+          productId = product.id;
+          setCreatedProductId(productId);
+          productWasCreated = true;
+        }
+        await workspaceService.receiveInventory({
+          warehouseId,
+          productId,
+          quantity: initialQuantity,
+          idempotencyKey: initialStockKey.current,
+        }, session.access_token);
+      }
       onSaved(); onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Chưa lưu được sản phẩm.');
+      const message = cause instanceof Error ? cause.message : 'Chưa lưu được sản phẩm.';
+      setError(productWasCreated ? `Sản phẩm đã được tạo nhưng chưa nhập được tồn kho. ${message}` : message);
     } finally { setBusy(false); }
   }
   const brandOptions: SearchableSelectOption[] = [
     ...(brandId && !selectedBrandIsLoaded && initialBrandName !== '—' ? [{ value: brandId, label: initialBrandName }] : []),
     ...brands.rows.map(row => ({ value: row.id, label: cell(row.name, 'name') })),
   ];
+  const warehouseOptions: SearchableSelectOption[] = warehouses.rows.map(row => ({ value: row.id, label: cell(row.code, 'code') + ' · ' + cell(row.name, 'name') }));
   return <Modal open title={initial ? 'Sửa sản phẩm' : 'Thêm sản phẩm'} size="lg" onClose={() => { if (!busy) onClose(); }}>
     <form className="space-y-4" onSubmit={event => { void submit(event); }}>
       <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-2">
@@ -187,9 +213,13 @@ function ProductForm({ initial, brands, onSaved, onClose }: { initial?: Row; bra
         <label>Tên sản phẩm<input required name="name" maxLength={200} defaultValue={initial ? cell(initial.name, 'name') : ''} className="block w-full rounded border p-2" /></label>
         <label>Brand<SearchableSelect value={brandId} onChange={setBrandId} options={brandOptions} placeholder="Chưa gán brand" emptyOptionLabel="Chưa gán brand" ariaLabel="Chọn brand" searchPlaceholder="Tìm brand..." /></label>
         <label>Giá vốn<input required name="costPrice" type="number" min="0" step="0.01" defaultValue={initial ? String(initial.costPrice ?? '') : ''} className="block w-full rounded border p-2" /></label>
+        {!initial && <>
+          <label>Kho nhập ban đầu<SearchableSelect value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} placeholder={warehouses.loading ? 'Đang tải kho...' : 'Chọn kho'} disabled={warehouses.loading} ariaLabel="Chọn kho nhập tồn ban đầu" searchPlaceholder="Tìm mã hoặc tên kho..." /></label>
+          <label>Số lượng nhập ban đầu<input required name="initialQuantity" type="number" min="0.001" step="0.001" className="block w-full rounded border p-2" placeholder="Nhập số lượng" /></label>
+        </>}
       </fieldset>
-      {(error || brands.error) && <p role="alert" className="text-red-700">{error || brands.error}</p>}
-      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Đang lưu…' : 'Lưu sản phẩm'}</button></div>
+      {(error || brands.error || (!initial && warehouses.error)) && <p role="alert" className="text-red-700">{error || brands.error || warehouses.error}</p>}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Đang lưu…' : createdProductId ? 'Thử nhập kho lại' : 'Lưu sản phẩm'}</button></div>
     </form>
   </Modal>;
 }
@@ -304,6 +334,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   const [editingProduct, setEditingProduct] = useState<Row | undefined>();
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [productError, setProductError] = useState('');
+  const [deactivateTarget, setDeactivateTarget] = useState<Row | null>(null);
   const [removeTarget, setRemoveTarget] = useState<{ label: string; remove: () => Promise<unknown> } | null>(null);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState('');
@@ -317,7 +348,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   const productInventory = useRows(['inventory'], isProducts ? workspaceService.listInventory : undefined);
   const mapping = useRows(['mappings', selection], page === 'channelMapping' && selection ? mappingLoader : undefined);
   const ledger = useRows(['inventory-transactions'], page === 'inventory' && transactions ? workspaceService.listInventoryTransactions : undefined);
-  const warehouses = useRows(['warehouses'], page === 'inventory' ? workspaceService.listWarehouses : undefined);
+  const warehouses = useRows(['warehouses'], page === 'inventory' || isProducts ? workspaceService.listWarehouses : undefined);
   const refreshWorkspace = useCallback(() => queryClient.invalidateQueries({ queryKey: ['workspace', session?.user.id] }), [queryClient, session?.user.id]);
   const query = (localSearch || search).trim().toLocaleLowerCase('vi');
   const rows = list.rows.filter(row => !query || Object.values(row).some(value =>
@@ -329,7 +360,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   });
   const productState = { rows: productRows, loading: list.loading || productInventory.loading, error: list.error ?? productInventory.error };
   async function deactivateProduct(product: Row) {
-    if (!session || !window.confirm(`Ngừng hoạt động sản phẩm ${cell(product.name, 'name')}?`)) return;
+    if (!session) return;
     setProductError('');
     try {
       await workspaceService.deactivateProduct(product.id, session.access_token);
@@ -352,9 +383,10 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
     {page === 'skuEconomics' && <p className="text-sm text-ink-600">Tổng tiền hàng và giá vốn theo SKU của đơn chưa hủy. Phí cấp đơn không phân bổ xuống SKU.</p>}
     {page === 'channelEconomics' && <p className="text-sm text-ink-600">Tổng doanh thu, chi phí và lợi nhuận theo kênh của các đơn chưa hủy. Kết quả có thể gồm đơn đang xử lý.</p>}
     {unavailable[page] && <p className="rounded-xl border border-ink-200 bg-white p-4 text-ink-700">{unavailable[page]}</p>}
-    {isProducts && <Result state={productState}><ProductTable rows={productRows} canManage={canManageProducts} onEdit={product => { setEditingProduct(product); setProductFormOpen(true); }} onDeactivate={product => { void deactivateProduct(product); }} /></Result>}
+    {isProducts && <Result state={productState}><ProductTable rows={productRows} canManage={canManageProducts} onEdit={product => { setEditingProduct(product); setProductFormOpen(true); }} onDeactivate={setDeactivateTarget} /></Result>}
     {productError && <p role="alert" className="text-red-700">{productError}</p>}
-    {productFormOpen && <ProductForm initial={editingProduct} brands={brands} onClose={() => setProductFormOpen(false)} onSaved={() => { void refreshWorkspace(); }} />}
+    {productFormOpen && <ProductForm initial={editingProduct} brands={brands} warehouses={warehouses} onClose={() => setProductFormOpen(false)} onSaved={() => { void refreshWorkspace(); }} />}
+    <ConfirmDialog open={Boolean(deactivateTarget)} onClose={() => setDeactivateTarget(null)} onConfirm={() => { if (deactivateTarget) void deactivateProduct(deactivateTarget); }} title="Ngừng hoạt động sản phẩm?" message={deactivateTarget ? `Sản phẩm ${cell(deactivateTarget.name, 'name')} sẽ không còn được sử dụng cho đơn hàng mới.` : ''} confirmLabel="Ngừng hoạt động" danger={false} />
     {isConnections && <Result state={list}><ChannelCards rows={rows}
       onEdit={row => { setEditingChannel(row); setChannelFormOpen(true); }}
       onRemove={row => setRemoveTarget({ label: 'tài khoản ' + cell(row.accountName, 'accountName'), remove: () => channelsService.remove(row.id, session?.access_token ?? '') })} /></Result>}
