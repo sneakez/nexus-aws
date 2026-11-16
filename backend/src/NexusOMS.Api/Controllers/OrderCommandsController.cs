@@ -27,7 +27,7 @@ public sealed class OrderCommandsController(
     public async Task<ActionResult<OrderDetail>> Create(CreateOrderRequest request, CancellationToken cancellationToken)
     {
         if (!TryGetActor(out var actor)) return Unauthorized();
-        var result = await creation.CreateAsync(request, actor, cancellationToken);
+        var result = await creation.CreateAsync(request with { DemoBatchId = null }, actor, cancellationToken);
         if (result.Replayed) return Ok(result.Order);
         return CreatedAtAction(nameof(OrdersController.Get), "Orders", new { id = result.Order.Id }, result.Order);
     }

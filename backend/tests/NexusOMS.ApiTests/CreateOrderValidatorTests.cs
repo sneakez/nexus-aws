@@ -38,4 +38,17 @@ public class CreateOrderValidatorTests
 
         CreateOrderValidator.Validate(request);
     }
+
+    [Fact]
+    public void Rejects_empty_demo_batch_id()
+    {
+        var request = new CreateOrderRequest(
+            "demo-batch", "DEMO-001", null, Guid.NewGuid(), 0m, 0m,
+            [new CreateOrderLineRequest(Guid.NewGuid(), 1m, 100m)],
+            DemoBatchId: Guid.Empty);
+
+        var error = Assert.Throws<ArgumentException>(() => CreateOrderValidator.Validate(request));
+
+        Assert.Contains("batch demo", error.Message);
+    }
 }

@@ -1,4 +1,5 @@
 using Npgsql;
+using NpgsqlTypes;
 
 namespace NexusOMS.OrderingAndFinance;
 
@@ -18,15 +19,15 @@ public sealed class PostgresReturnRepository(
             join public.orders o on o.id = r.order_id
             left join public.customers c on c.id = o.customer_id
             left join public.channel_connections cc on cc.id = o.channel_connection_id
-            where (@from is null or r.created_at >= @from)
-              and (@to is null or r.created_at < @to + interval '1 day')
+            where (@from is null or r.created_at >= cast(@from as date))
+              and (@to is null or r.created_at < cast(@to as date) + interval '1 day')
             order by r.created_at desc, r.id
             limit 100
             """;
 
         await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("from", (object?)from ?? DBNull.Value);
-        command.Parameters.AddWithValue("to", (object?)to ?? DBNull.Value);
+        command.Parameters.Add("from", NpgsqlDbType.Date).Value = (object?)from ?? DBNull.Value;
+        command.Parameters.Add("to", NpgsqlDbType.Date).Value = (object?)to ?? DBNull.Value;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
         var rows = new List<ReturnCaseSummary>();

@@ -1,4 +1,5 @@
 using Npgsql;
+using NpgsqlTypes;
 
 namespace NexusOMS.OrderingAndFinance;
 
@@ -35,8 +36,8 @@ public sealed class PostgresFinanceSummaryRepository(NpgsqlDataSource dataSource
         left join item_totals i on i.order_id = o.id
         left join fee_totals f on f.order_id = o.id
         where o.status <> 'cancelled'
-          and (@from is null or o.created_at >= @from)
-          and (@to is null or o.created_at < @to + interval '1 day')
+          and (@from is null or o.created_at >= cast(@from as date))
+          and (@to is null or o.created_at < cast(@to as date) + interval '1 day')
         group by o.created_at::date
         order by order_date
         """;
@@ -110,8 +111,8 @@ public sealed class PostgresFinanceSummaryRepository(NpgsqlDataSource dataSource
         DateOnly? from, DateOnly? to, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(TimelineSql);
-        command.Parameters.AddWithValue("from", (object?)from ?? DBNull.Value);
-        command.Parameters.AddWithValue("to", (object?)to ?? DBNull.Value);
+        command.Parameters.Add("from", NpgsqlDbType.Date).Value = (object?)from ?? DBNull.Value;
+        command.Parameters.Add("to", NpgsqlDbType.Date).Value = (object?)to ?? DBNull.Value;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var rows = new List<FinanceTimelineRow>();
         while (await reader.ReadAsync(cancellationToken))

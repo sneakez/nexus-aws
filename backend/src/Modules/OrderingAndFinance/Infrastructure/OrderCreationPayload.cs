@@ -14,6 +14,7 @@ internal static class OrderCreationPayload
             request.WarehouseId,
             request.Tax,
             request.ShippingFee,
+            request.DemoBatchId,
             Items = request.Items
                 .OrderBy(item => item.ProductId)
                 .Select(item => new

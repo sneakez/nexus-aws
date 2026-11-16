@@ -10,14 +10,14 @@ namespace NexusOMS.Api.Controllers;
 [ApiController]
 [Route("api/v1/webhook-simulator")]
 [Authorize(Policy = Policies.ManagerOrAdmin)]
-public sealed class WebhookSimulatorDispatchController(WebhookSimulatorService simulator) : ControllerBase
+public sealed class WebhookSimulatorDispatchController(WebhookDispatchService dispatcher) : ControllerBase
 {
     [HttpPost("{connectionId:guid}/dispatch")]
     public async Task<IActionResult> Dispatch(Guid connectionId, WebhookSimulatorPayload payload, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await simulator.ProcessTrustedAsync(connectionId, payload, cancellationToken);
+            var result = await dispatcher.DispatchTrustedAsync(connectionId, payload, cancellationToken);
             return result.Replayed ? Ok(result) : Accepted(result);
         }
         catch (WebhookPayloadConflictException) { return Conflict(new { message = "eventId đã được dùng với payload khác." }); }

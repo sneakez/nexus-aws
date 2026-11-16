@@ -16,9 +16,11 @@ public sealed record WebhookSimulatorPayload(
     Guid WarehouseId,
     decimal Tax,
     decimal ShippingFee,
-    IReadOnlyList<WebhookSimulatorItem>? Items);
+    IReadOnlyList<WebhookSimulatorItem>? Items,
+    string? CancellationReason = null,
+    Guid? DemoBatchId = null);
 
-public sealed record WebhookSimulatorResult(Guid OrderId, bool Replayed, string Status);
+public sealed record WebhookSimulatorResult(Guid? OrderId, bool Replayed, string Status);
 
 public sealed class WebhookSignatureException : Exception;
 public sealed class WebhookPayloadConflictException : Exception;
@@ -30,6 +32,7 @@ public sealed class WebhookSimulatorService(
     OrderCreationService orders,
     OrderProgressService progress,
     OrderShippingService shipping,
+    OrderCancellationService cancellation,
     IConfiguration configuration)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -40,18 +43,26 @@ public sealed class WebhookSimulatorService(
         string? signature,
         CancellationToken cancellationToken = default)
     {
+        var payload = ParseExternal(rawBody, signature);
+
+        var eventKey = $"webhook:{connectionId:N}:{payload.EventId!.Trim()}";
+        var log = await BeginLogAsync(connectionId, payload.EventType!, eventKey, rawBody, cancellationToken);
+        return await ProcessLogAsync(log, connectionId, payload, eventKey, cancellationToken);
+    }
+
+    public WebhookSimulatorPayload ParseExternal(string rawBody, string? signature)
+    {
         var secret = configuration["WebhookSimulator:Secret"];
         if (!WebhookSignatureVerifier.IsValid(rawBody, signature, secret ?? string.Empty))
             throw new WebhookSignatureException();
 
         var payload = JsonSerializer.Deserialize<WebhookSimulatorPayload>(rawBody, JsonOptions)
             ?? throw new ArgumentException("Payload webhook không hợp lệ.");
-        Validate(payload);
-
-        var eventKey = $"webhook:{connectionId:N}:{payload.EventId!.Trim()}";
-        var log = await BeginLogAsync(connectionId, payload.EventType!, eventKey, rawBody, cancellationToken);
-        return await ProcessLogAsync(log, connectionId, payload, eventKey, cancellationToken);
+        ValidateTrusted(payload);
+        return payload;
     }
+
+    public static void ValidateTrusted(WebhookSimulatorPayload payload) => Validate(payload);
 
     public async Task<WebhookSimulatorResult> ProcessTrustedAsync(
         Guid connectionId,
@@ -142,6 +153,7 @@ public sealed class WebhookSimulatorService(
                 {
                     "order.confirmed" => await AdvanceAsync(orderId, "confirm", eventKey, actorId, cancellationToken),
                     "order.processing" => await AdvanceAsync(orderId, "process", eventKey, actorId, cancellationToken),
+                    "order.cancelled" => await CancelAsync(orderId, payload.CancellationReason, eventKey, actorId, cancellationToken),
                     "order.shipped" => await ShipAsync(orderId, eventKey, actorId, cancellationToken),
                     "order.delivered" => await MarkDeliveredAsync(orderId, eventKey, actorId, cancellationToken),
                     _ => throw new ArgumentException("eventType không được hỗ trợ."),
@@ -194,7 +206,8 @@ public sealed class WebhookSimulatorService(
             payload.Tax,
             payload.ShippingFee,
             lines,
-            connectionId);
+            connectionId,
+            DemoBatchId: payload.DemoBatchId);
     }
 
     // This pre-flight check gives the simulator a useful message. The inventory contract still
@@ -251,6 +264,15 @@ public sealed class WebhookSimulatorService(
     private async Task<WebhookSimulatorResult> ShipAsync(Guid orderId, string eventKey, Guid actorId, CancellationToken cancellationToken)
     {
         var result = await shipping.ShipAsync(orderId, new ShipOrderRequest(eventKey), actorId, cancellationToken)
+            ?? throw new ArgumentException("Đơn hàng không tồn tại.");
+        return new WebhookSimulatorResult(result.OrderId, result.Replayed, result.Status);
+    }
+
+    private async Task<WebhookSimulatorResult> CancelAsync(Guid orderId, string? reason, string eventKey, Guid actorId, CancellationToken cancellationToken)
+    {
+        var result = await cancellation.CancelAsync(orderId,
+            new CancelOrderRequest(eventKey, string.IsNullOrWhiteSpace(reason) ? "Cancelled by marketplace webhook" : reason.Trim()),
+            actorId, cancellationToken)
             ?? throw new ArgumentException("Đơn hàng không tồn tại.");
         return new WebhookSimulatorResult(result.OrderId, result.Replayed, result.Status);
     }
@@ -365,10 +387,11 @@ public sealed class WebhookSimulatorService(
     private static void Validate(WebhookSimulatorPayload payload)
     {
         var eventType = payload.EventType?.Trim().ToLowerInvariant();
-        var supported = eventType is "order.created" or "order.ready_to_ship" or "order.confirmed" or "order.processing" or "order.shipped" or "order.delivered";
+        var supported = eventType is "order.created" or "order.ready_to_ship" or "order.confirmed" or "order.processing" or "order.cancelled" or "order.shipped" or "order.delivered";
         var createsOrder = eventType is "order.created" or "order.ready_to_ship";
         if (string.IsNullOrWhiteSpace(payload.EventId) || payload.EventId.Length > 160
             || !supported || string.IsNullOrWhiteSpace(payload.ExternalOrderId) || payload.ExternalOrderId.Length > 120
+            || payload.DemoBatchId == Guid.Empty
             || (createsOrder && (payload.WarehouseId == Guid.Empty || payload.Items is null || payload.Items.Count is 0)))
             throw new ArgumentException("Payload webhook thiếu trường bắt buộc hoặc eventType không được hỗ trợ.");
     }

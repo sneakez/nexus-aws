@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/common/PageHeader';
 import { HierarchicalDataGrid } from '@/components/common/HierarchicalDataGrid';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/SearchableSelect';
 import { Pencil, Plus, RefreshCw, Store } from 'lucide-react';
 import { BackendPricingCalculator } from './BackendPricingCalculator';
@@ -333,6 +334,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   const [editingProduct, setEditingProduct] = useState<Row | undefined>();
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [productError, setProductError] = useState('');
+  const [deactivateTarget, setDeactivateTarget] = useState<Row | null>(null);
   const [removeTarget, setRemoveTarget] = useState<{ label: string; remove: () => Promise<unknown> } | null>(null);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState('');
@@ -358,7 +360,7 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
   });
   const productState = { rows: productRows, loading: list.loading || productInventory.loading, error: list.error ?? productInventory.error };
   async function deactivateProduct(product: Row) {
-    if (!session || !window.confirm(`Ngừng hoạt động sản phẩm ${cell(product.name, 'name')}?`)) return;
+    if (!session) return;
     setProductError('');
     try {
       await workspaceService.deactivateProduct(product.id, session.access_token);
@@ -381,9 +383,10 @@ export function BackendWorkspacePage({ page, search }: { page: PageId; search: s
     {page === 'skuEconomics' && <p className="text-sm text-ink-600">Tổng tiền hàng và giá vốn theo SKU của đơn chưa hủy. Phí cấp đơn không phân bổ xuống SKU.</p>}
     {page === 'channelEconomics' && <p className="text-sm text-ink-600">Tổng doanh thu, chi phí và lợi nhuận theo kênh của các đơn chưa hủy. Kết quả có thể gồm đơn đang xử lý.</p>}
     {unavailable[page] && <p className="rounded-xl border border-ink-200 bg-white p-4 text-ink-700">{unavailable[page]}</p>}
-    {isProducts && <Result state={productState}><ProductTable rows={productRows} canManage={canManageProducts} onEdit={product => { setEditingProduct(product); setProductFormOpen(true); }} onDeactivate={product => { void deactivateProduct(product); }} /></Result>}
+    {isProducts && <Result state={productState}><ProductTable rows={productRows} canManage={canManageProducts} onEdit={product => { setEditingProduct(product); setProductFormOpen(true); }} onDeactivate={setDeactivateTarget} /></Result>}
     {productError && <p role="alert" className="text-red-700">{productError}</p>}
     {productFormOpen && <ProductForm initial={editingProduct} brands={brands} warehouses={warehouses} onClose={() => setProductFormOpen(false)} onSaved={() => { void refreshWorkspace(); }} />}
+    <ConfirmDialog open={Boolean(deactivateTarget)} onClose={() => setDeactivateTarget(null)} onConfirm={() => { if (deactivateTarget) void deactivateProduct(deactivateTarget); }} title="Ngừng hoạt động sản phẩm?" message={deactivateTarget ? `Sản phẩm ${cell(deactivateTarget.name, 'name')} sẽ không còn được sử dụng cho đơn hàng mới.` : ''} confirmLabel="Ngừng hoạt động" danger={false} />
     {isConnections && <Result state={list}><ChannelCards rows={rows}
       onEdit={row => { setEditingChannel(row); setChannelFormOpen(true); }}
       onRemove={row => setRemoveTarget({ label: 'tài khoản ' + cell(row.accountName, 'accountName'), remove: () => channelsService.remove(row.id, session?.access_token ?? '') })} /></Result>}

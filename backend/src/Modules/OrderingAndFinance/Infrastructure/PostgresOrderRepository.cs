@@ -1,4 +1,5 @@
 using Npgsql;
+using NpgsqlTypes;
 
 namespace NexusOMS.OrderingAndFinance;
 
@@ -34,15 +35,15 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
         const string sql = """
             select id, order_number, status::text, total, created_at, channel_connection_id
             from public.orders
-            where (@from is null or created_at >= @from)
-              and (@to is null or created_at < @to + interval '1 day')
+            where (@from is null or created_at >= cast(@from as date))
+              and (@to is null or created_at < cast(@to as date) + interval '1 day')
             order by created_at desc, id
             limit 100
             """;
 
         await using var command = dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("from", (object?)from ?? DBNull.Value);
-        command.Parameters.AddWithValue("to", (object?)to ?? DBNull.Value);
+        command.Parameters.Add("from", NpgsqlDbType.Date).Value = (object?)from ?? DBNull.Value;
+        command.Parameters.Add("to", NpgsqlDbType.Date).Value = (object?)to ?? DBNull.Value;
         await using var reader =
             await command.ExecuteReaderAsync(cancellationToken);
 
