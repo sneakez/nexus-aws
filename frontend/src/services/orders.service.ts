@@ -24,7 +24,7 @@ const nullableText = (value: unknown) => value === null ? null : text(value);
 const nullableId = (value: unknown) => value == null ? null : text(value);
 function summary(value: unknown): BackendOrderSummary {
   const order = record(value);
-  return { id: text(order.id), orderNumber: text(order.orderNumber), status: text(order.status), total: exactMoney(order.total), createdAt: text(order.createdAt), channelConnectionId: nullableId(order.channelConnectionId), hasActiveReservation: bool(order.hasActiveReservation) };
+  return { id: text(order.id), orderNumber: text(order.orderNumber), status: text(order.status), total: exactMoney(order.total), createdAt: text(order.createdAt), channelConnectionId: nullableId(order.channelConnectionId), hasActiveReservation: order.hasActiveReservation == null ? false : bool(order.hasActiveReservation) };
 }
 function detail(value: unknown): BackendOrderDetail {
   const order = record(value);
