@@ -50,7 +50,7 @@ const storageKey = 'nexus-webhook-simulation-v1';
 const wait = (milliseconds: number) => new Promise<void>(resolve => window.setTimeout(resolve, milliseconds));
 
 export const isCancellableOrder = (order: BackendOrderSummary) =>
-  ['pending', 'confirmed', 'processing'].includes(order.status);
+  order.hasActiveReservation && ['pending', 'confirmed', 'processing'].includes(order.status);
 
 export const isDemoBatchSafeToCleanup = (orders: DemoOrderRun[]) => orders.length > 0
   && orders.every(order => ['processed', 'dispatch_failed', 'timeout'].includes(order.status));

@@ -33,11 +33,16 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
         CancellationToken cancellationToken = default)
     {
         const string sql = """
-            select id, order_number, status::text, total, created_at, channel_connection_id
-            from public.orders
-            where (@from is null or created_at >= cast(@from as date))
-              and (@to is null or created_at < cast(@to as date) + interval '1 day')
-            order by created_at desc, id
+            select o.id, o.order_number, o.status::text, o.total, o.created_at,
+                   o.channel_connection_id,
+                   exists (
+                     select 1 from public.inventory_reservations r
+                     where r.order_id = o.id and r.state = 'reserved'
+                   )
+            from public.orders o
+            where (@from is null or o.created_at >= cast(@from as date))
+              and (@to is null or o.created_at < cast(@to as date) + interval '1 day')
+            order by o.created_at desc, o.id
             limit 100
             """;
 
@@ -57,7 +62,8 @@ public sealed class PostgresOrderRepository(NpgsqlDataSource dataSource) : IOrde
                 reader.GetString(2),
                 reader.GetDecimal(3),
                 reader.GetFieldValue<DateTimeOffset>(4),
-                reader.IsDBNull(5) ? null : reader.GetGuid(5)));
+                reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                reader.GetBoolean(6)));
         }
 
         return orders;
