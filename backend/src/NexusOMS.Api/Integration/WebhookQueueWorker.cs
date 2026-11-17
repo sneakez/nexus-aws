@@ -40,7 +40,7 @@ public sealed class WebhookQueueWorker(
         }
     }
 
-    internal static IReadOnlyList<Message> MessagesOrEmpty(ReceiveMessageResponse response) =>
+    public static IReadOnlyList<Message> MessagesOrEmpty(ReceiveMessageResponse response) =>
         response.Messages ?? [];
 
     private async Task ProcessAsync(string queueUrl, Message message, CancellationToken cancellationToken)
