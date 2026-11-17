@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { isCancellableOrder, isDemoBatchSafeToCleanup } from '@/app/WebhookSimulatorPage';
 import type { BackendOrderSummary } from '@/services/orders.service';
 
-const order = (status: string): BackendOrderSummary => ({
+const order = (status: string, hasActiveReservation = true): BackendOrderSummary => ({
   id: 'order-1', orderNumber: 'SHOP-001', status, total: '100000',
-  createdAt: '2026-11-16T00:00:00Z', channelConnectionId: 'channel-1',
+  createdAt: '2026-11-16T00:00:00Z', channelConnectionId: 'channel-1', hasActiveReservation,
 });
 
 describe('Webhook simulator cancellation branch', () => {
@@ -14,6 +14,10 @@ describe('Webhook simulator cancellation branch', () => {
 
   it.each(['shipped', 'delivered', 'cancelled'])('blocks cancellation from %s', status => {
     expect(isCancellableOrder(order(status))).toBe(false);
+  });
+
+  it('blocks an order without active inventory reservations', () => {
+    expect(isCancellableOrder(order('pending', false))).toBe(false);
   });
 });
 

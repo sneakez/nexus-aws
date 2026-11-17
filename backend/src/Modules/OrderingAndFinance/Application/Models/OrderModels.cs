@@ -8,7 +8,8 @@ public sealed record OrderSummary(
     string Status,
     decimal Total,
     DateTimeOffset CreatedAt,
-    Guid? ChannelConnectionId = null);
+    Guid? ChannelConnectionId = null,
+    bool HasActiveReservation = false);
 public sealed record OrderLine(
     Guid Id,
     Guid? ProductId,

@@ -1,7 +1,7 @@
 import { exactMoney } from '@/lib/orderFormatting';
 import { apiClient } from './apiClient';
 
-export interface BackendOrderSummary { id: string; orderNumber: string; status: string; total: string; createdAt: string; channelConnectionId: string | null; }
+export interface BackendOrderSummary { id: string; orderNumber: string; status: string; total: string; createdAt: string; channelConnectionId: string | null; hasActiveReservation: boolean; }
 export interface BackendOrderLine { id: string; productId: string | null; productSku: string | null; productName: string; quantity: number; unitPrice: number; lineTotal: string; unitCost: number | null; }
 export interface BackendOrderDetail extends BackendOrderSummary { customerId: string | null; customerName?: string | null; subtotal: string; tax: number; shippingFee: number; items: BackendOrderLine[]; }
 export interface OrderCatalogOption { id: string; name: string; code: string; }
@@ -19,11 +19,12 @@ const record = (value: unknown) => {
 };
 const text = (value: unknown) => { if (typeof value !== 'string') throw new Error('Dữ liệu văn bản không hợp lệ.'); return value; };
 const money = (value: unknown) => { if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Dữ liệu số tiền không hợp lệ.'); return value; };
+const bool = (value: unknown) => { if (typeof value !== 'boolean') throw new Error('Dữ liệu boolean không hợp lệ.'); return value; };
 const nullableText = (value: unknown) => value === null ? null : text(value);
 const nullableId = (value: unknown) => value == null ? null : text(value);
 function summary(value: unknown): BackendOrderSummary {
   const order = record(value);
-  return { id: text(order.id), orderNumber: text(order.orderNumber), status: text(order.status), total: exactMoney(order.total), createdAt: text(order.createdAt), channelConnectionId: nullableId(order.channelConnectionId) };
+  return { id: text(order.id), orderNumber: text(order.orderNumber), status: text(order.status), total: exactMoney(order.total), createdAt: text(order.createdAt), channelConnectionId: nullableId(order.channelConnectionId), hasActiveReservation: bool(order.hasActiveReservation) };
 }
 function detail(value: unknown): BackendOrderDetail {
   const order = record(value);

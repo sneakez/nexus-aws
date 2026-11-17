@@ -101,7 +101,7 @@ select
   p.id,
   b.id,
   55 + (right(p.sku, 3)::integer * 3) + case when w.code = 'NXDEMO-WH-HCM' then 35 else 0 end,
-  right(p.sku, 3)::integer % 7,
+  0,
   right(p.sku, 3)::integer % 4,
   (right(p.sku, 3)::integer % 5) * 4
 from public.warehouses w
@@ -116,6 +116,25 @@ on conflict (warehouse_id, product_id) do update set
   pending_qc = excluded.pending_qc,
   incoming = excluded.incoming,
   updated_at = now();
+
+-- The simulator may use any active warehouse selected in the UI. Give every
+-- active warehouse inventory for the NXDEMO catalog while preserving rows
+-- already populated above.
+insert into public.inventory_items (
+  warehouse_id, product_id, stock, reserved, pending_qc, incoming
+)
+select
+  w.id,
+  p.id,
+  500,
+  0,
+  0,
+  0
+from public.warehouses w
+cross join public.products p
+where w.is_active = true
+  and p.sku like 'NXDEMO-SKU-%'
+on conflict (warehouse_id, product_id) do nothing;
 
 -- Keep the original workshop catalog usable in databases seeded before NXDEMO.
 update public.inventory_items i
@@ -301,6 +320,37 @@ select
 from item_seed s
 join demo_products p
   on p.product_no = ((s.order_no + s.item_no - 2) % 18) + 1;
+
+with reservations as (
+  insert into public.inventory_reservations (
+    order_id, warehouse_id, product_id,
+    reserved_quantity, remaining_quantity, state
+  )
+  select
+    o.id,
+    o.assigned_warehouse_id,
+    oi.product_id,
+    sum(oi.quantity),
+    sum(oi.quantity),
+    'reserved'
+  from public.orders o
+  join public.order_items oi on oi.order_id = o.id
+  where o.order_number like 'NXDEMO-%'
+    and o.status in ('pending', 'confirmed', 'processing')
+  group by o.id, o.assigned_warehouse_id, oi.product_id
+  on conflict (order_id, warehouse_id, product_id) do nothing
+  returning warehouse_id, product_id, remaining_quantity
+), reserved_totals as (
+  select warehouse_id, product_id, sum(remaining_quantity) as quantity
+  from reservations
+  group by warehouse_id, product_id
+)
+update public.inventory_items i
+set reserved = i.reserved + r.quantity,
+    updated_at = now()
+from reserved_totals r
+where i.warehouse_id = r.warehouse_id
+  and i.product_id = r.product_id;
 
 update public.orders o
 set
