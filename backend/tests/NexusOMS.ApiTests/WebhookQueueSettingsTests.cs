@@ -1,10 +1,19 @@
 using Microsoft.Extensions.Configuration;
+using Amazon.SQS.Model;
 using NexusOMS.Api.Integration;
 
 namespace NexusOMS.ApiTests;
 
 public sealed class WebhookQueueSettingsTests
 {
+    [Fact]
+    public void Empty_sqs_response_has_no_messages_to_process()
+    {
+        var response = new ReceiveMessageResponse { Messages = null };
+
+        Assert.Empty(WebhookQueueWorker.MessagesOrEmpty(response));
+    }
+
     [Fact]
     public void Defaults_to_direct_so_local_backend_does_not_require_aws()
     {
