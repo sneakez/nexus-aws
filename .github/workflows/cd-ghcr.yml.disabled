@@ -1,0 +1,89 @@
+name: CD - Publish images
+
+# Chạy khi code vào main hoặc khi gắn tag phiên bản vX.Y.Z.
+# Quy trình: chạy lại toàn bộ test (CI) -> chỉ khi CẢ HAI xanh mới build và đẩy image.
+# Sản phẩm: Docker image đẩy lên GitHub Container Registry (ghcr.io).
+# Chưa triển khai lên AWS: khi sẵn sàng chỉ cần thêm job "deploy" dùng image này.
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Cổng kiểm tra: dùng lại đúng workflow CI của PR
+  frontend-ci:
+    name: Frontend CI
+    uses: ./.github/workflows/frontend-ci.yml
+  backend-ci:
+    name: Backend CI
+    uses: ./.github/workflows/backend-ci.yml
+
+  publish:
+    name: Publish ${{ matrix.name }}
+    needs: [frontend-ci, backend-ci]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: frontend
+            context: ./frontend
+            build_args: |
+              VITE_DATA_MODE=supabase
+              VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+              VITE_SUPABASE_URL=${{ vars.VITE_SUPABASE_URL }}
+              VITE_SUPABASE_ANON_KEY=${{ vars.VITE_SUPABASE_ANON_KEY }}
+          - name: backend
+            context: ./backend
+            build_args: ''
+    steps:
+      - name: Verify frontend build configuration
+        if: matrix.name == 'frontend'
+        shell: bash
+        env:
+          PUBLIC_API_URL: ${{ vars.VITE_API_BASE_URL }}
+          PUBLIC_AUTH_URL: ${{ vars.VITE_SUPABASE_URL }}
+          PUBLIC_AUTH_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$PUBLIC_API_URL" || { echo "Set repository variable VITE_API_BASE_URL"; exit 1; }
+          test -n "$PUBLIC_AUTH_URL" || { echo "Set repository variable VITE_SUPABASE_URL"; exit 1; }
+          test -n "$PUBLIC_AUTH_KEY" || { echo "Set repository variable VITE_SUPABASE_ANON_KEY"; exit 1; }
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tự sinh tag: sha ngắn (truy vết), tên nhánh, phiên bản semver, và latest cho main
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          build-args: ${{ matrix.build_args }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
