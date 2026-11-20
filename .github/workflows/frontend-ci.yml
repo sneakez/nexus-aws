@@ -5,7 +5,7 @@ name: Frontend CI
 on:
   pull_request:
     branches: [main]
-    paths: ['frontend/**', '.github/workflows/frontend-ci.yml']
+    paths: ['frontend/**', '.github/workflows/**']
   workflow_call:
 
 concurrency:

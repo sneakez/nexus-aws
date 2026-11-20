@@ -5,7 +5,7 @@ name: Backend CI
 on:
   pull_request:
     branches: [main]
-    paths: ['backend/**', 'supabase/**', 'postman/**', '.github/workflows/backend-ci.yml']
+    paths: ['backend/**', 'supabase/**', 'postman/**', '.github/workflows/**']
   workflow_call:
 
 concurrency:
